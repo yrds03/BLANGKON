@@ -1465,23 +1465,59 @@ function filterStokUI() {
     let myCab = String(state.cabang).toUpperCase().trim();
     let fCab = String(filterCabang).toUpperCase().trim();
     let hS = "", hM = "", hO = ""; 
+
     if(state.data.produk && state.data.produk.length > 0) { 
-        state.data.produk.forEach((p, idx) => { 
+        // 1. Filter Cabang Dulu
+        let filteredProd = state.data.produk.filter(p => {
+            let pCabang = String(p.Cabang || 'Pusat').toUpperCase().trim();
+            if (roleNorm !== 'SUPERADMIN') return pCabang === myCab;
+            if (fCab !== 'SEMUA') return pCabang === fCab;
+            return true;
+        });
+
+        // 2. Urutkan berdasarkan Kategori -> Abjad Nama Produk A-Z
+        filteredProd.sort((a, b) => {
+            let katA = String(a.Kategori || "LAINNYA").toUpperCase();
+            let katB = String(b.Kategori || "LAINNYA").toUpperCase();
+            if(katA < katB) return -1;
+            if(katA > katB) return 1;
+            return String(a.Nama_Produk || "").localeCompare(String(b.Nama_Produk || ""));
+        });
+
+        let currentKatS = "";
+        let currentKatO = "";
+
+        // 3. Render Baris per Baris
+        filteredProd.forEach((p) => { 
             let rawCabang = p.Cabang || 'Pusat';
-            let pCabang = String(rawCabang).toUpperCase().trim();
-            if (roleNorm !== 'SUPERADMIN') {
-                if (pCabang !== myCab) return; 
-            } else {
-                if (fCab !== 'SEMUA' && pCabang !== fCab) return; 
-            }
             let isHabis = parseFloat(p.Stok_Saat_Ini) <= 0; 
             let isWarning = parseFloat(p.Stok_Saat_Ini) <= parseFloat(p.Stok_Minimum || 0) && !isHabis;
             let stClass = isHabis ? "text-red-500 bg-red-50 px-2 py-1 rounded border border-red-200" : (isWarning ? "text-orange-500 bg-orange-50 px-2 py-1 rounded border border-orange-200" : "text-emerald-600 font-black"); 
             let warnIcon = isWarning ? `<i class="fa-solid fa-triangle-exclamation text-orange-500 ml-2" title="Stok Menipis!"></i>` : '';
+            
+            let kat = String(p.Kategori || "LAINNYA").toUpperCase();
+
+            // PEMANTAUAN STOK (Group by Kategori)
+            if (kat !== currentKatS) {
+                hS += `<tr class="bg-slate-200/70 border-y border-slate-300"><td colspan="3" class="p-3 pl-6 text-xs font-black text-slate-700 uppercase tracking-widest"><i class="fa-solid fa-tags mr-2 text-blue-500"></i> KATEGORI: ${kat}</td></tr>`;
+                currentKatS = kat;
+            }
             hS += `<tr class="hover:bg-slate-50 transition"><td class="p-4 pl-6 text-xs text-slate-500">${p.ID_Produk}</td><td class="p-4 text-slate-800 font-bold">${p.Nama_Produk}<br><span class="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded border border-blue-100 uppercase mt-1 inline-block"><i class="fa-solid fa-store mr-1"></i>${rawCabang}</span></td><td class="p-4"><span class="${stClass} text-lg">${p.Stok_Saat_Ini}</span> <span class="text-[10px] font-bold text-slate-400 uppercase">${p.Satuan||''}</span>${warnIcon}</td></tr>`; 
-            hO += `<tr class="hover:bg-slate-50 transition"><td class="p-4 pl-6 text-xs text-slate-500">${p.ID_Produk}</td><td class="p-4 text-slate-800 font-bold truncate max-w-[200px]">${p.Nama_Produk}<br><span class="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded border border-blue-100 uppercase mt-1 inline-block"><i class="fa-solid fa-store mr-1"></i>${rawCabang}</span></td><td class="p-4 text-center font-black text-blue-600 text-lg" id="op-sys-${idx}">${p.Stok_Saat_Ini}</td><td class="p-4 text-center"><input type="number" id="op-fisik-${idx}" value="${p.Stok_Saat_Ini}" onkeyup="hitungSelisih(${idx})" onchange="hitungSelisih(${idx})" class="w-24 border border-slate-300 p-2.5 rounded-xl font-black text-center outline-none focus:border-orange-500 bg-orange-50 text-orange-700 shadow-inner"></td><td class="p-4 text-center font-black text-slate-400 text-lg" id="op-selisih-${idx}">0</td><td class="p-4 pr-6"><input type="text" id="op-ket-${idx}" placeholder="Aman / Rusak" class="w-full border border-slate-200 p-2.5 rounded-xl text-xs font-bold outline-none focus:border-orange-500 bg-slate-50"></td></tr>`; 
+            
+            // STOK OPNAME (Group by Kategori & Merek)
+            let brand = String(p.Nama_Produk || "TANPA NAMA").trim().split(' ')[0].toUpperCase();
+            let groupOpname = `${kat} - Merek: ${brand}`;
+
+            if (groupOpname !== currentKatO) {
+                hO += `<tr class="bg-orange-100 border-y border-orange-200"><td colspan="6" class="p-3 pl-6 text-xs font-black text-orange-800 uppercase tracking-widest"><i class="fa-solid fa-box-open mr-2"></i> ${kat} <span class="mx-2">|</span> MEREK: ${brand}</td></tr>`;
+                currentKatO = groupOpname;
+            }
+            // ID diganti dari index (idx) jadi ID_Produk agar aman waktu disorting
+            hO += `<tr class="hover:bg-slate-50 transition"><td class="p-4 pl-6 text-xs text-slate-500">${p.ID_Produk}</td><td class="p-4 text-slate-800 font-bold truncate max-w-[200px]">${p.Nama_Produk}<br><span class="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded border border-blue-100 uppercase mt-1 inline-block"><i class="fa-solid fa-store mr-1"></i>${rawCabang}</span></td><td class="p-4 text-center font-black text-blue-600 text-lg" id="op-sys-${p.ID_Produk}">${p.Stok_Saat_Ini}</td><td class="p-4 text-center"><input type="number" id="op-fisik-${p.ID_Produk}" value="${p.Stok_Saat_Ini}" onkeyup="hitungSelisih('${p.ID_Produk}')" onchange="hitungSelisih('${p.ID_Produk}')" class="w-24 border border-slate-300 p-2.5 rounded-xl font-black text-center outline-none focus:border-orange-500 bg-orange-50 text-orange-700 shadow-inner"></td><td class="p-4 text-center font-black text-slate-400 text-lg" id="op-selisih-${p.ID_Produk}">0</td><td class="p-4 pr-6"><input type="text" id="op-ket-${p.ID_Produk}" placeholder="Aman / Rusak" class="w-full border border-slate-200 p-2.5 rounded-xl text-xs font-bold outline-none focus:border-orange-500 bg-slate-50"></td></tr>`; 
         }); 
     } 
+    
+    // MUTASI STOK
     if(state.data.stok && state.data.stok.length > 0) { 
         state.data.stok.slice().reverse().forEach(m => { 
             let rawCabang = m.Cabang || 'Pusat';
@@ -1495,20 +1531,46 @@ function filterStokUI() {
             hM += `<tr class="hover:bg-slate-50 transition"><td class="p-4 pl-6 text-xs text-slate-400 font-bold">${String(m.Waktu).substring(0, 16)}<br><span class="text-[10px] text-blue-500 uppercase"><i class="fa-solid fa-store mr-1"></i>${rawCabang}</span></td><td class="p-4 font-bold text-slate-800">${m.ID_Produk}</td><td class="p-4 font-black ${col}">${m.Jenis_Pergerakan} <span class="bg-slate-100 px-2 py-1 rounded text-slate-600 ml-2 border border-slate-200">${m.Jumlah}</span></td><td class="p-4 text-xs text-slate-500 font-bold">${m.Keterangan}</td></tr>`; 
         }); 
     } 
+    
     let elS = document.getElementById('tabel-pantau-body'); if(elS) elS.innerHTML = hS || `<tr><td colspan="3" class="p-8 text-center text-slate-400 font-bold">Tidak ada data untuk cabang ini.</td></tr>`; 
     let elM = document.getElementById('tabel-mutasi-body'); if(elM) elM.innerHTML = hM || `<tr><td colspan="4" class="p-8 text-center text-slate-400 font-bold">Belum ada mutasi di cabang ini.</td></tr>`; 
     let elO = document.getElementById('tabel-opname-body'); if(elO) elO.innerHTML = hO || `<tr><td colspan="6" class="p-8 text-center text-slate-400 font-bold">Tidak ada data untuk cabang ini.</td></tr>`; 
 }
-function hitungSelisih(idx) { let sys = parseFloat(document.getElementById('op-sys-'+idx).innerText) || 0; let fsk = parseFloat(document.getElementById('op-fisik-'+idx).value) || 0; let selisih = fsk - sys; let el = document.getElementById('op-selisih-'+idx); el.innerText = selisih > 0 ? '+'+selisih : selisih; el.className = `p-4 text-center font-black text-lg ${selisih === 0 ? 'text-slate-400' : (selisih > 0 ? 'text-emerald-500' : 'text-red-500')}`; }
+
+function hitungSelisih(id) { 
+    let sys = parseFloat(document.getElementById('op-sys-'+id).innerText) || 0; 
+    let fsk = parseFloat(document.getElementById('op-fisik-'+id).value) || 0; 
+    let selisih = fsk - sys; 
+    let el = document.getElementById('op-selisih-'+id); 
+    el.innerText = selisih > 0 ? '+'+selisih : selisih; 
+    el.className = `p-4 text-center font-black text-lg ${selisih === 0 ? 'text-slate-400' : (selisih > 0 ? 'text-emerald-500' : 'text-red-500')}`; 
+}
+
 function switchStokTab(tab, el) { ['pantau','mutasi','lacak','opname', 'transfer'].forEach(t => document.getElementById('stok-'+t).classList.add('hidden')); el.parentElement.querySelectorAll('.tab-custom').forEach(e => e.classList.remove('active')); document.getElementById('stok-'+tab).classList.remove('hidden'); el.classList.add('active'); }
+
 async function simpanOpnameMassal() { 
     let payloadItems = []; 
-    if(state.data.produk) { state.data.produk.forEach((p, idx) => { let fsk = parseFloat(document.getElementById('op-fisik-'+idx).value) || 0; let sys = parseFloat(p.Stok_Saat_Ini) || 0; let ket = document.getElementById('op-ket-'+idx).value || "Pengecekan Harian"; let selisih = fsk - sys; if(selisih !== 0 || ket !== "Pengecekan Harian") { payloadItems.push({ id: p.ID_Produk, fisik: fsk, selisih: selisih, keterangan: ket, cabang: state.cabang }); } }); } 
+    if(state.data.produk) { 
+        state.data.produk.forEach((p) => { 
+            let fisikEl = document.getElementById('op-fisik-'+p.ID_Produk);
+            if(fisikEl) { // Hanya proses jika elemen di-render (masuk filter)
+                let fsk = parseFloat(fisikEl.value) || 0; 
+                let sys = parseFloat(p.Stok_Saat_Ini) || 0; 
+                let ketEl = document.getElementById('op-ket-'+p.ID_Produk);
+                let ket = ketEl ? ketEl.value || "Pengecekan Harian" : "Pengecekan Harian"; 
+                let selisih = fsk - sys; 
+                if(selisih !== 0 || ket !== "Pengecekan Harian") { 
+                    payloadItems.push({ id: p.ID_Produk, fisik: fsk, selisih: selisih, keterangan: ket, cabang: state.cabang }); 
+                } 
+            }
+        }); 
+    } 
     if(payloadItems.length === 0) return showInlineNotif('info', 'Tidak ada selisih stok (Balance semua).'); 
     showInlineNotif('info', 'Menyimpan hasil Opname...'); 
     let res = await requestAPIWithAuth('prosesStokOpname', { items: payloadItems });
     if(res.status) { showInlineNotif('success', res.msg); syncDataLiveBackground(); } else { showInlineNotif('error', res.msg); } 
 }
+
 function cetakFormOpname() {
     let filterEl = document.getElementById('stok-filter-cabang');
     let filterCabang = filterEl ? filterEl.value.toUpperCase().trim() : 'SEMUA';
@@ -1516,12 +1578,12 @@ function cetakFormOpname() {
     let myCab = String(state.cabang).toUpperCase().trim();
 
     let targetCabangName = roleNorm !== 'SUPERADMIN' ? myCab : (filterCabang === 'SEMUA' ? 'Semua Cabang' : filterCabang);
-    let namaToko = localStorage.getItem('sanstech_nama_toko') || "sanstech POS";
+    let namaToko = localStorage.getItem('sanstech_nama_toko') || "BLANGKON ERP";
     if(targetCabangName !== 'Semua Cabang' && targetCabangName !== 'PUSAT') {
         namaToko += " - " + targetCabangName;
     }
 
-    // Saring data produk sesuai cabang
+    // 1. Saring data produk sesuai cabang
     let filteredProd = [];
     if (state.data.produk && state.data.produk.length > 0) {
         filteredProd = state.data.produk.filter(p => {
@@ -1536,6 +1598,15 @@ function cetakFormOpname() {
         return showInlineNotif('error', 'Tidak ada data produk di cabang ini untuk dicetak!');
     }
 
+    // 2. Sorting Otomatis Berdasarkan Kategori -> Merek
+    filteredProd.sort((a, b) => {
+        let katA = String(a.Kategori || "LAINNYA").toUpperCase();
+        let katB = String(b.Kategori || "LAINNYA").toUpperCase();
+        if(katA < katB) return -1;
+        if(katA > katB) return 1;
+        return String(a.Nama_Produk || "").localeCompare(String(b.Nama_Produk || ""));
+    });
+
     let iframe = document.getElementById('print-iframe'); 
     let doc = iframe.contentWindow.document; 
     
@@ -1548,6 +1619,7 @@ function cetakFormOpname() {
         table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
         th, td { border: 1px solid #000; padding: 6px; text-align: left; vertical-align: middle; }
         th { background-color: #f1f5f9; font-weight: bold; text-align: center; }
+        .group-header { background-color: #e2e8f0; font-weight: bold; text-align: left; font-size: 12px; }
         .ttd-container { display: table; width: 100%; margin-top: 30px; }
         .ttd-box { display: table-cell; width: 33%; text-align: center; font-size: 12px; }
         .line { border-bottom: 1px solid #000; display: inline-block; width: 150px; margin-top: 50px; }
@@ -1562,18 +1634,31 @@ function cetakFormOpname() {
     html += `<table><thead><tr>
         <th width="5%">No</th>
         <th width="15%">ID Produk / Barcode</th>
-        <th width="35%">Nama Produk & Kategori</th>
+        <th width="35%">Nama Produk</th>
         <th width="10%">Stok Sistem</th>
         <th width="15%">Stok Fisik Aktual</th>
         <th width="20%">Keterangan / Catatan</th>
     </tr></thead><tbody>`;
     
-    filteredProd.forEach((p, idx) => {
+    let currentGroup = "";
+    let no = 1;
+
+    // 3. Render Tabel Form Print (Dikelompokkan)
+    filteredProd.forEach((p) => {
+        let kat = String(p.Kategori || "LAINNYA").toUpperCase();
+        let brand = String(p.Nama_Produk || "TANPA NAMA").trim().split(' ')[0].toUpperCase();
+        let group = `KATEGORI: ${kat} | MEREK: ${brand}`;
+
+        if(group !== currentGroup) {
+            html += `<tr><td colspan="6" class="group-header">${group}</td></tr>`;
+            currentGroup = group;
+        }
+
         let bc = p.Barcode ? `<br><span style="font-size:9px; font-family:monospace;">${p.Barcode}</span>` : '';
         html += `<tr>
-            <td style="text-align:center;">${idx + 1}</td>
+            <td style="text-align:center;">${no++}</td>
             <td><b>${p.ID_Produk}</b>${bc}</td>
-            <td><b>${p.Nama_Produk}</b><br><span style="font-size:9px; color:#555;">Kategori: ${p.Kategori} | Satuan: ${p.Satuan}</span></td>
+            <td><b>${p.Nama_Produk}</b><br><span style="font-size:9px; color:#555;">Satuan: ${p.Satuan}</span></td>
             <td style="text-align:center;">${p.Stok_Saat_Ini}</td>
             <td></td>
             <td></td>
@@ -1593,7 +1678,6 @@ function cetakFormOpname() {
     
     doc.open(); doc.write(html); doc.close(); 
     
-    // Memberikan jeda waktu sesaat agar iframe selesai merender desain sebelum nge-print
     setTimeout(() => { 
         iframe.contentWindow.focus(); 
         iframe.contentWindow.print(); 
