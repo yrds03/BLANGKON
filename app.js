@@ -99,7 +99,8 @@ function pastikanDataAman(rawData) {
 // ====================================================================
 function cekUpdatePWA() {
     if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('sw.js?v=' + new Date().getTime())
+        // PERBAIKAN: Hapus "?v=..." agar tidak infinite loop
+        navigator.serviceWorker.register('sw.js')
             .then(registration => {
                 registration.addEventListener('updatefound', () => {
                     const newWorker = registration.installing;
