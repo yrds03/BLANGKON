@@ -97,22 +97,25 @@ function pastikanDataAman(rawData) {
 // ====================================================================
 // PWA UPDATE CHECK & AUTO CACHE CLEAR
 // ====================================================================
+let updateNotified = false; // Peredam agar popup tidak muncul berkali-kali
 function cekUpdatePWA() {
     if ('serviceWorker' in navigator) {
-        // PERBAIKAN: Hapus "?v=..." agar tidak infinite loop
         navigator.serviceWorker.register('sw.js')
             .then(registration => {
                 registration.addEventListener('updatefound', () => {
                     const newWorker = registration.installing;
                     newWorker.addEventListener('statechange', () => {
                         if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                            let mod = document.getElementById('modal-update-pwa');
-                            if(mod) {
-                                mod.classList.replace('hidden', 'flex');
-                                setTimeout(() => {
-                                    mod.classList.remove('opacity-0');
-                                    mod.querySelector('.transform').classList.remove('scale-95');
-                                }, 50);
+                            if (!updateNotified) {
+                                updateNotified = true;
+                                let mod = document.getElementById('modal-update-pwa');
+                                if(mod) {
+                                    mod.classList.replace('hidden', 'flex');
+                                    setTimeout(() => {
+                                        mod.classList.remove('opacity-0');
+                                        mod.querySelector('.transform').classList.remove('scale-95');
+                                    }, 50);
+                                }
                             }
                         }
                     });
@@ -333,11 +336,6 @@ async function syncDataLiveBackground() {
         if(resSetting && resSetting.status && resSetting.data) {
             for(let key in resSetting.data) { localStorage.setItem(key, resSetting.data[key]); }
             muatPengaturanLokal();
-            
-            let modalMaster = document.getElementById('modal-input-master');
-            if(state.activeMenu === 'datamaster' && (!modalMaster || modalMaster.classList.contains('hidden'))) {
-                renderModulAktif();
-            }
         }
 
         let res = await requestAPIWithAuth('tarikDataLiveSystem', {role: state.role, cabang: state.cabang, _t: new Date().getTime()});
@@ -357,14 +355,17 @@ async function syncDataLiveBackground() {
             }
             
             state.data = cleanData;
-            
             if(el) el.innerHTML = '<i class="fa-solid fa-cloud text-emerald-500"></i> Otomatis'; 
             
+            // ANTI-LAG SYSTEM: Jangan re-render UI kalau user sedang sibuk buka form / opname
             switch(state.activeMenu) {
                 case 'dashboard': document.getElementById('main-content-area').innerHTML = viewDashboard(); renderChartDasbor(); break;
                 case 'pos': if(document.getElementById('modal-cari-pos') && !document.getElementById('modal-cari-pos').classList.contains('hidden')) { renderListCariPOS(); } break;
                 case 'penjualan': filterRiwayat(); renderTabelSO(); break;
-                case 'produk': filterProdukUI(); break;
+                case 'produk': 
+                    let formPrd = document.getElementById('form-wrap-produk');
+                    if(!formPrd || formPrd.classList.contains('hidden')) { filterProdukUI(); }
+                    break;
                 case 'pelanggan': filterPelangganUI(); break;
                 case 'supplier': filterSupplierUI(); break;
                 case 'pembelian': renderRiwayatPO(); break;
@@ -1076,15 +1077,22 @@ function viewProduk() {
   let filterCabangHtml = '';
   let roleNorm = String(state.role).toUpperCase().replace(/\s+/g, '');
   if(roleNorm !== 'KASIR') {
-      filterCabangHtml = `<select id="filter-cabang-produk" onchange="filterProdukUI()" class="border border-slate-200 p-2 rounded-lg text-xs font-bold outline-none focus:border-blue-500 bg-white ml-3 shadow-sm"><option value="SEMUA">Semua Cabang</option>`;
+      filterCabangHtml = `<select id="filter-cabang-produk" onchange="filterProdukUI()" class="border border-slate-200 p-2.5 rounded-lg text-xs font-bold outline-none focus:border-blue-500 bg-white ml-3 shadow-sm"><option value="SEMUA">Semua Cabang</option>`;
       savedCabang.forEach(c => { filterCabangHtml += `<option value="${c}">${c}</option>`; });
       filterCabangHtml += `</select>`;
   } else { filterCabangHtml = `<input type="hidden" id="filter-cabang-produk" value="${state.cabang}">`; }
   
   return `
   <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col h-full"> 
-      <div class="flex justify-between items-center mb-6">
-          <h3 class="font-black text-lg text-slate-800 flex items-center">Master Data Produk ${filterCabangHtml}</h3>
+      <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+          <h3 class="font-black text-lg text-slate-800 flex items-center">Master Produk ${filterCabangHtml}</h3>
+          
+          <!-- SEARCH BAR PRODUK -->
+          <div class="relative w-full md:w-64">
+             <i class="fa-solid fa-search absolute left-3 top-3 text-slate-400"></i>
+             <input type="text" id="prd-search" onkeyup="filterProdukUI()" class="w-full border border-slate-200 p-2 pl-9 rounded-lg text-sm font-bold outline-none focus:border-blue-500 bg-white shadow-sm" placeholder="Cari Nama / IMEI...">
+          </div>
+
           <div class="flex items-center gap-2">
               <button onclick="triggerImportProduk()" class="bg-indigo-50 text-indigo-600 hover:bg-indigo-500 hover:text-white font-bold p-2.5 rounded-xl shadow-sm transition admin-only" title="Import CSV (Bulk Upload)"><i class="fa-solid fa-file-import"></i></button>
               <button onclick="exportDataCSV('produk')" class="bg-emerald-50 text-emerald-600 hover:bg-emerald-500 hover:text-white font-bold p-2.5 rounded-xl shadow-sm transition" title="Export Excel"><i class="fa-solid fa-file-excel"></i></button>
@@ -1113,7 +1121,7 @@ function viewProduk() {
           </div>
           <div class="flex gap-2">
               <button onclick="simpanFormProduk()" id="btn-submit-prd" class="bg-blue-600 text-white font-bold px-6 py-2.5 rounded-lg text-sm shadow hover:bg-blue-700 transition">Simpan Data</button>
-              <button onclick="document.getElementById('form-wrap-produk').classList.add('hidden')" class="bg-slate-200 text-slate-600 font-bold px-6 py-2.5 rounded-lg text-sm hover:bg-slate-300 transition">Batal</button>
+              <button onclick="document.getElementById('form-wrap-produk').classList.add('hidden'); filterProdukUI();" class="bg-slate-200 text-slate-600 font-bold px-6 py-2.5 rounded-lg text-sm hover:bg-slate-300 transition">Batal</button>
           </div>
       </div> 
       <div class="flex-1 overflow-auto rounded-xl border border-slate-200 bg-white">
@@ -1128,39 +1136,57 @@ function viewProduk() {
 }
 function filterProdukUI() { 
     let filterEl = document.getElementById('filter-cabang-produk');
+    let searchEl = document.getElementById('prd-search');
+    
     let filterCabang = filterEl ? filterEl.value : 'SEMUA';
+    let searchVal = searchEl ? searchEl.value.toLowerCase().trim() : '';
+    
     let roleNorm = String(state.role).toUpperCase().replace(/\s+/g, '');
     let myCab = String(state.cabang).toUpperCase().trim();
     let fCab = String(filterCabang).toUpperCase().trim();
     let html = ""; 
+
     if(!state.data.produk || state.data.produk.length === 0) { 
         html = `<tr><td colspan="5" class="p-10 text-center text-slate-400 font-bold">Data Kosong.</td></tr>`; 
     } else { 
-        state.data.produk.forEach(p => { 
+        let filteredProd = state.data.produk.filter(p => {
             let rawCabang = p.Cabang || 'Pusat';
             let pCabang = String(rawCabang).toUpperCase().trim();
-            if (roleNorm !== 'SUPERADMIN') {
-                if (pCabang !== myCab) return;
-            } else {
-                if (fCab !== 'SEMUA' && pCabang !== fCab) return;
-            }
-            let isHabis = parseFloat(p.Stok_Saat_Ini) <= 0; 
-            let isWarning = parseFloat(p.Stok_Saat_Ini) <= parseFloat(p.Stok_Minimum || 0) && !isHabis;
-            let stClass = isHabis ? "text-red-500 bg-red-50 px-2 py-1 rounded border border-red-200" : (isWarning ? "text-orange-500 bg-orange-50 px-2 py-1 rounded border border-orange-200" : "text-emerald-600 font-black"); 
-            let warnaHtml = p.Warna ? `<span class="text-[10px] bg-slate-100 px-2 py-0.5 rounded text-slate-600 border border-slate-200"><i class="fa-solid fa-palette mr-1 text-slate-400"></i>${p.Warna}</span>` : '';
-            let supHtml = p.Supplier && p.Supplier !== '-' ? `<span class="text-[10px] bg-yellow-50 text-yellow-700 px-2 py-0.5 rounded font-bold border border-yellow-200"><i class="fa-solid fa-truck-fast mr-1"></i>${p.Supplier}</span>` : '';
+            if (roleNorm !== 'SUPERADMIN' && pCabang !== myCab) return false;
+            if (roleNorm === 'SUPERADMIN' && fCab !== 'SEMUA' && pCabang !== fCab) return false;
             
-            html += `<tr class="hover:bg-slate-50 transition">
-                <td class="p-4 pl-6"><p class="text-xs font-bold text-blue-600">${p.ID_Produk}</p><p class="text-[10px] font-mono text-slate-400">${p.Barcode||'-'}</p></td>
-                <td class="p-4"><p class="font-bold text-slate-800">${p.Nama_Produk}</p><div class="mt-1 flex flex-wrap gap-1"><span class="text-[10px] bg-slate-100 px-2 py-0.5 rounded text-slate-600 border border-slate-200"><i class="fa-solid fa-tag mr-1 text-slate-400"></i>${p.Kategori}</span> ${warnaHtml} ${supHtml} <span class="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded font-bold border border-blue-100 uppercase"><i class="fa-solid fa-location-dot mr-1"></i>${rawCabang}</span></div></td>
-                <td class="p-4 admin-only"><p class="text-[10px] text-slate-400 font-bold">B: ${formatRp(p.Harga_Beli)}</p><p class="text-sm text-slate-800 font-black mt-0.5">J: ${formatRp(p.Harga_Jual)}</p></td>
-                <td class="p-4"><span class="${stClass}">${p.Stok_Saat_Ini} <span class="text-[10px] font-bold text-slate-400 uppercase">${p.Satuan}</span></span><p class="text-[10px] text-slate-400 mt-1 font-bold">Min Stok: ${p.Stok_Minimum || 0}</p></td>
-                <td class="p-4 pr-6 flex gap-2 justify-center items-center h-full admin-only mt-2">
-                    <button onclick="bukaFormProduk(true, '${p.ID_Produk}')" class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white transition shadow-sm border border-blue-100" title="Edit"><i class="fa-solid fa-pen text-[10px]"></i></button>
-                    <button onclick="konfirmasiHapusProduk('${p.ID_Produk}')" class="w-8 h-8 rounded-lg bg-red-50 text-red-500 hover:bg-red-500 hover:text-white transition shadow-sm border border-red-100" title="Hapus"><i class="fa-solid fa-trash text-[10px]"></i></button>
-                </td>
-            </tr>`; 
-        }); 
+            // Pencarian text
+            if(searchVal) {
+                let nm = String(p.Nama_Produk||"").toLowerCase();
+                let bc = String(p.Barcode||"").toLowerCase();
+                if(!nm.includes(searchVal) && !bc.includes(searchVal)) return false;
+            }
+            return true;
+        });
+
+        if(filteredProd.length === 0) {
+            html = `<tr><td colspan="5" class="p-10 text-center text-slate-400 font-bold">Produk tidak ditemukan.</td></tr>`;
+        } else {
+            filteredProd.forEach(p => { 
+                let rawCabang = p.Cabang || 'Pusat';
+                let isHabis = parseFloat(p.Stok_Saat_Ini) <= 0; 
+                let isWarning = parseFloat(p.Stok_Saat_Ini) <= parseFloat(p.Stok_Minimum || 0) && !isHabis;
+                let stClass = isHabis ? "text-red-500 bg-red-50 px-2 py-1 rounded border border-red-200" : (isWarning ? "text-orange-500 bg-orange-50 px-2 py-1 rounded border border-orange-200" : "text-emerald-600 font-black"); 
+                let warnaHtml = p.Warna ? `<span class="text-[10px] bg-slate-100 px-2 py-0.5 rounded text-slate-600 border border-slate-200"><i class="fa-solid fa-palette mr-1 text-slate-400"></i>${p.Warna}</span>` : '';
+                let supHtml = p.Supplier && p.Supplier !== '-' ? `<span class="text-[10px] bg-yellow-50 text-yellow-700 px-2 py-0.5 rounded font-bold border border-yellow-200"><i class="fa-solid fa-truck-fast mr-1"></i>${p.Supplier}</span>` : '';
+                
+                html += `<tr class="hover:bg-slate-50 transition">
+                    <td class="p-4 pl-6"><p class="text-xs font-bold text-blue-600">${p.ID_Produk}</p><p class="text-[10px] font-mono text-slate-400">${p.Barcode||'-'}</p></td>
+                    <td class="p-4"><p class="font-bold text-slate-800">${p.Nama_Produk}</p><div class="mt-1 flex flex-wrap gap-1"><span class="text-[10px] bg-slate-100 px-2 py-0.5 rounded text-slate-600 border border-slate-200"><i class="fa-solid fa-tag mr-1 text-slate-400"></i>${p.Kategori}</span> ${warnaHtml} ${supHtml} <span class="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded font-bold border border-blue-100 uppercase"><i class="fa-solid fa-location-dot mr-1"></i>${rawCabang}</span></div></td>
+                    <td class="p-4 admin-only"><p class="text-[10px] text-slate-400 font-bold">B: ${formatRp(p.Harga_Beli)}</p><p class="text-sm text-slate-800 font-black mt-0.5">J: ${formatRp(p.Harga_Jual)}</p></td>
+                    <td class="p-4"><span class="${stClass}">${p.Stok_Saat_Ini} <span class="text-[10px] font-bold text-slate-400 uppercase">${p.Satuan}</span></span><p class="text-[10px] text-slate-400 mt-1 font-bold">Min Stok: ${p.Stok_Minimum || 0}</p></td>
+                    <td class="p-4 pr-6 flex gap-2 justify-center items-center h-full admin-only mt-2">
+                        <button onclick="bukaFormProduk(true, '${p.ID_Produk}')" class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white transition shadow-sm border border-blue-100" title="Edit"><i class="fa-solid fa-pen text-[10px]"></i></button>
+                        <button onclick="konfirmasiHapusProduk('${p.ID_Produk}')" class="w-8 h-8 rounded-lg bg-red-50 text-red-500 hover:bg-red-500 hover:text-white transition shadow-sm border border-red-100" title="Hapus"><i class="fa-solid fa-trash text-[10px]"></i></button>
+                    </td>
+                </tr>`; 
+            }); 
+        }
     } 
     let el = document.getElementById('tabel-produk-ui'); 
     if(el) { el.innerHTML = html; document.querySelectorAll('.admin-only').forEach(e => { e.style.display = (String(state.role).toUpperCase().replace(/\s+/g, '') === 'KASIR') ? 'none' : ''; }); }
@@ -1226,12 +1252,15 @@ async function simpanFormProduk() {
         let idPrd = document.getElementById('prd-id').value;
         let supVal = document.getElementById('prd-sup') ? document.getElementById('prd-sup').value : "-";
 
+        // VALIDASI DOUBLE IMEI KETAT (Abaikan Spasi & Huruf Besar Kecil)
         if (barcodeVal !== "") {
-            let cekDuplikat = state.data.produk.find(p => String(p.Barcode) === barcodeVal);
+            let bCari = barcodeVal.toUpperCase().replace(/\s+/g, '');
+            let cekDuplikat = state.data.produk.find(p => String(p.Barcode || "").toUpperCase().replace(/\s+/g, '') === bCari);
+            
             if (cekDuplikat && (act === 'CREATE' || (act === 'UPDATE' && cekDuplikat.ID_Produk !== idPrd))) {
                 let statusStok = parseFloat(cekDuplikat.Stok_Saat_Ini) <= 0 ? "(Sudah Terjual/Habis)" : "(Masih Ada di Gudang: " + (cekDuplikat.Cabang || 'Pusat') + ")";
                 let e = document.getElementById('prd-inline-notif'); 
-                e.innerHTML = `<i class="fa-solid fa-triangle-exclamation text-lg mb-1 block"></i> GAGAL! IMEI/Barcode <b>${barcodeVal}</b> sudah terdaftar:<br><b>${cekDuplikat.Nama_Produk}</b> ${statusStok}.`; 
+                e.innerHTML = `<i class="fa-solid fa-triangle-exclamation text-lg mb-1 block"></i> GAGAL! IMEI/Barcode <b>${barcodeVal}</b> sudah terdaftar di sistem pada produk:<br><b>${cekDuplikat.Nama_Produk}</b> ${statusStok}.`; 
                 e.className = "text-xs font-bold p-4 rounded-xl mb-4 bg-red-50 text-red-600 border border-red-200 block text-center"; e.classList.remove('hidden'); return; 
             }
         }
@@ -1387,6 +1416,11 @@ function viewStok() {
     let opsiCabangTFHtml = `<option value="">-- Pilih Cabang Tujuan --</option>`; 
     savedCabang.forEach(cab => opsiCabangTFHtml += `<option value="${cab}">${cab}</option>`); 
     
+    // Kategori untuk dropdown filter
+    let listKat = JSON.parse(localStorage.getItem('sanstech_list-kat') || '["Umum"]');
+    let opsiKat = `<option value="SEMUA">Semua Kategori</option>`; 
+    listKat.forEach(k => opsiKat += `<option value="${k.toUpperCase()}">${k}</option>`);
+    
     let filterCabangHtml = '';
     let roleNorm = String(state.role).toUpperCase().replace(/\s+/g, '');
     
@@ -1426,34 +1460,31 @@ function viewStok() {
         </div> 
         <div id="stok-opname" class="hidden flex-1 flex flex-col">
             <div class="bg-orange-50 text-orange-800 p-4 rounded-xl mb-4 text-xs border border-orange-200 flex flex-col gap-3">
-                <div class="flex justify-between items-center">
-                    <p class="font-bold">Panduan Stok Opname Fisik:</p>
-                    <div class="flex gap-2">
-                        <button onclick="cetakFormOpname()" class="bg-slate-800 text-white font-bold px-4 py-2 rounded shadow hover:bg-slate-900 transition"><i class="fa-solid fa-print mr-1"></i> Cetak Form</button>
-                        <button onclick="simpanOpnameMassal()" class="bg-orange-600 text-white font-bold px-5 py-2 rounded shadow hover:bg-orange-700 transition">Selesaikan Opname</button>
+                <div class="flex flex-wrap justify-between items-center gap-3">
+                    <p class="font-bold hidden md:block">Filter Kertas Kerja Opname:</p>
+                    
+                    <!-- FILTER KHUSUS OPNAME -->
+                    <div class="flex gap-2 flex-1 md:flex-none">
+                       <select id="opname-filter-kat" onchange="filterStokUI()" class="border border-orange-300 p-2 rounded-lg text-xs font-bold outline-none text-orange-800 bg-white shadow-sm">${opsiKat}</select>
+                       <input type="text" id="opname-search" onkeyup="filterStokUI()" class="border border-orange-300 p-2 rounded-lg text-xs font-bold outline-none w-full md:w-48 bg-white shadow-sm" placeholder="Cari Produk/IMEI...">
+                    </div>
+
+                    <div class="flex gap-2 w-full md:w-auto mt-2 md:mt-0">
+                        <button onclick="cetakFormOpname()" class="flex-1 md:flex-none bg-slate-800 text-white font-bold px-4 py-2 rounded-lg shadow hover:bg-slate-900 transition"><i class="fa-solid fa-print mr-1"></i> Cetak A4</button>
+                        <button onclick="simpanOpnameMassal()" class="flex-1 md:flex-none bg-orange-600 text-white font-bold px-5 py-2 rounded-lg shadow hover:bg-orange-700 transition">Selesaikan Opname</button>
                     </div>
                 </div>
-                <table class="w-full text-left bg-white border border-orange-100 rounded-lg overflow-hidden">
-                    <thead class="bg-orange-100 text-[10px] uppercase">
-                        <tr><th class="p-2 border-b border-orange-200">Kategori</th><th class="p-2 border-b border-orange-200">Cara Cek</th></tr>
-                    </thead>
-                    <tbody class="font-medium">
-                        <tr class="border-b border-slate-100"><td class="p-2 font-bold">HP Unit</td><td class="p-2">Cocokkan IMEI, warna, kapasitas, dan jumlah unit.</td></tr>
-                        <tr class="border-b border-slate-100"><td class="p-2 font-bold">Aksesoris</td><td class="p-2">Hitung charger, kabel, headset, casing, tempered glass, dll.</td></tr>
-                        <tr class="border-b border-slate-100"><td class="p-2 font-bold">Kartu Perdana</td><td class="p-2">Hitung per operator dan nominal.</td></tr>
-                        <tr><td class="p-2 font-bold text-red-600">Barang Rusak</td><td class="p-2">Pisahkan dan beri label agar tidak tercampur stok jual.</td></tr>
-                    </tbody>
-                </table>
             </div> 
             <div class="flex-1 overflow-auto rounded-xl border border-slate-200 bg-white">
                 <table class="w-full text-left min-w-[800px]">
-                    <thead class="bg-slate-100 text-[10px] text-slate-500 font-black uppercase tracking-wider sticky top-0 z-10">
-                        <tr><th class="p-4 pl-6">ID Produk</th><th class="p-4">Nama Produk & Lokasi</th><th class="p-4 text-center">Stok Sistem</th><th class="p-4 text-center">Stok Fisik</th><th class="p-4 text-center">Selisih</th><th class="p-4 pr-6">Catatan</th></tr>
+                    <thead class="bg-slate-100 text-[10px] text-slate-500 font-black uppercase tracking-wider sticky top-0 z-10 shadow-sm">
+                        <tr><th class="p-4 pl-6">ID Produk</th><th class="p-4">Nama Produk & Lokasi</th><th class="p-4 text-center">Stok Sistem</th><th class="p-4 text-center">Stok Fisik Aktual</th><th class="p-4 text-center">Selisih</th><th class="p-4 pr-6">Catatan</th></tr>
                     </thead>
                     <tbody id="tabel-opname-body" class="divide-y divide-slate-100 text-sm font-bold text-slate-700"></tbody>
                 </table>
             </div> 
         </div> 
+        <!-- (BAGIAN LACAK & TRANSFER CABANG BIARKAN SEPERTI ASLINYA) -->
         <div id="stok-lacak" class="hidden flex-1"><div class="bg-slate-50 p-6 rounded-2xl shadow-sm border border-slate-200 max-w-lg mx-auto mt-6"><h3 class="font-bold text-center mb-4 text-lg">Pelacakan Posisi IMEI / Barcode</h3><div class="flex gap-2 mb-4"><input type="text" id="input-lacak-imei" placeholder="Scan/Ketik Barcode IMEI HP..." class="w-full border border-slate-300 p-3.5 rounded-xl font-bold bg-white focus:border-blue-500 outline-none"><button onclick="bukaKamera('lacak')" class="bg-blue-600 hover:bg-blue-700 text-white px-5 rounded-xl shadow-md transition" title="Scan Kamera"><i class="fa-solid fa-camera text-xl"></i></button></div><button onclick="lacakImeiBarang()" class="w-full bg-blue-600 text-white font-bold py-3.5 rounded-xl shadow-md hover:bg-blue-700 transition"><i class="fa-solid fa-search mr-2"></i>Lacak Posisi Sekarang</button></div><div id="hasil-lacak-imei" class="mt-6 hidden max-w-2xl mx-auto space-y-3"></div></div> 
         <div id="stok-transfer" class="hidden flex-1"><div class="bg-slate-50 p-6 rounded-2xl shadow-sm border border-slate-200 max-w-2xl mx-auto mt-6"><h3 class="font-bold mb-4 text-lg border-b pb-2">Pindahkan Stok ke Cabang Lain</h3><div class="grid grid-cols-2 gap-4 mb-4"><div><label class="text-xs font-bold text-slate-500">Dari Gudang</label><input type="text" value="${state.cabang}" class="w-full border border-slate-200 p-3 rounded-xl bg-slate-100 font-bold text-slate-500" disabled></div><div><label class="text-xs font-bold text-slate-500">Tujuan Cabang</label><select id="tf-tujuan" class="w-full border border-slate-200 p-3 rounded-xl bg-white font-bold outline-none focus:border-blue-500">${opsiCabangTFHtml}</select></div></div><div class="flex gap-2 mb-4"><div class="relative flex-1"><i class="fa-solid fa-barcode absolute left-4 top-3.5 text-slate-400"></i><input type="text" id="tf-produk" placeholder="Scan Barcode / ID Produk..." class="w-full border border-slate-200 p-3 pl-11 rounded-xl font-bold bg-white outline-none focus:border-blue-500"></div><button onclick="bukaKamera('tf')" class="bg-blue-600 text-white w-12 rounded-xl shadow hover:bg-blue-700 transition"><i class="fa-solid fa-camera"></i></button></div><div class="flex gap-4"><input type="number" id="tf-qty" placeholder="Qty Dikirim" class="w-1/3 border border-slate-200 p-3 rounded-xl font-bold bg-white outline-none focus:border-blue-500"><button id="btn-tf" class="w-2/3 bg-slate-800 text-white font-bold py-3 rounded-xl shadow-md hover:bg-slate-900 transition" onclick="prosesTransferGudang()">Proses Pindah Gudang</button></div></div></div> 
     </div> `; 
@@ -1467,7 +1498,7 @@ function filterStokUI() {
     let hS = "", hM = "", hO = ""; 
 
     if(state.data.produk && state.data.produk.length > 0) { 
-        // 1. Filter Cabang Dulu
+        // Filter Cabang Global
         let filteredProd = state.data.produk.filter(p => {
             let pCabang = String(p.Cabang || 'Pusat').toUpperCase().trim();
             if (roleNorm !== 'SUPERADMIN') return pCabang === myCab;
@@ -1475,7 +1506,7 @@ function filterStokUI() {
             return true;
         });
 
-        // 2. Urutkan berdasarkan Kategori -> Abjad Nama Produk A-Z
+        // Urutkan Abjad A-Z & Kategori
         filteredProd.sort((a, b) => {
             let katA = String(a.Kategori || "LAINNYA").toUpperCase();
             let katB = String(b.Kategori || "LAINNYA").toUpperCase();
@@ -1486,8 +1517,11 @@ function filterStokUI() {
 
         let currentKatS = "";
         let currentKatO = "";
+        
+        // Ambil Nilai Filter Khusus Opname
+        let opK = document.getElementById('opname-filter-kat') ? document.getElementById('opname-filter-kat').value : 'SEMUA';
+        let opS = document.getElementById('opname-search') ? document.getElementById('opname-search').value.toLowerCase().trim() : '';
 
-        // 3. Render Baris per Baris
         filteredProd.forEach((p) => { 
             let rawCabang = p.Cabang || 'Pusat';
             let isHabis = parseFloat(p.Stok_Saat_Ini) <= 0; 
@@ -1497,23 +1531,27 @@ function filterStokUI() {
             
             let kat = String(p.Kategori || "LAINNYA").toUpperCase();
 
-            // PEMANTAUAN STOK (Group by Kategori)
+            // PEMANTAUAN STOK BIASA (Selalu muncul semua berdasarkan cabang)
             if (kat !== currentKatS) {
                 hS += `<tr class="bg-slate-200/70 border-y border-slate-300"><td colspan="3" class="p-3 pl-6 text-xs font-black text-slate-700 uppercase tracking-widest"><i class="fa-solid fa-tags mr-2 text-blue-500"></i> KATEGORI: ${kat}</td></tr>`;
                 currentKatS = kat;
             }
             hS += `<tr class="hover:bg-slate-50 transition"><td class="p-4 pl-6 text-xs text-slate-500">${p.ID_Produk}</td><td class="p-4 text-slate-800 font-bold">${p.Nama_Produk}<br><span class="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded border border-blue-100 uppercase mt-1 inline-block"><i class="fa-solid fa-store mr-1"></i>${rawCabang}</span></td><td class="p-4"><span class="${stClass} text-lg">${p.Stok_Saat_Ini}</span> <span class="text-[10px] font-bold text-slate-400 uppercase">${p.Satuan||''}</span>${warnIcon}</td></tr>`; 
             
-            // STOK OPNAME (Group by Kategori & Merek)
-            let brand = String(p.Nama_Produk || "TANPA NAMA").trim().split(' ')[0].toUpperCase();
-            let groupOpname = `${kat} - Merek: ${brand}`;
+            // STOK OPNAME (Punya filter Kategori & Search sendiri)
+            let passOpKat = (opK === 'SEMUA' || kat === opK);
+            let passOpSearch = (opS === '' || String(p.Nama_Produk).toLowerCase().includes(opS) || String(p.Barcode).toLowerCase().includes(opS));
+            
+            if(passOpKat && passOpSearch) {
+                let brand = String(p.Nama_Produk || "TANPA NAMA").trim().split(' ')[0].toUpperCase();
+                let groupOpname = `${kat} - Merek: ${brand}`;
 
-            if (groupOpname !== currentKatO) {
-                hO += `<tr class="bg-orange-100 border-y border-orange-200"><td colspan="6" class="p-3 pl-6 text-xs font-black text-orange-800 uppercase tracking-widest"><i class="fa-solid fa-box-open mr-2"></i> ${kat} <span class="mx-2">|</span> MEREK: ${brand}</td></tr>`;
-                currentKatO = groupOpname;
+                if (groupOpname !== currentKatO) {
+                    hO += `<tr class="bg-orange-100 border-y border-orange-200"><td colspan="6" class="p-3 pl-6 text-xs font-black text-orange-800 uppercase tracking-widest"><i class="fa-solid fa-box-open mr-2"></i> ${kat} <span class="mx-2">|</span> MEREK: ${brand}</td></tr>`;
+                    currentKatO = groupOpname;
+                }
+                hO += `<tr class="hover:bg-slate-50 transition"><td class="p-4 pl-6 text-xs text-slate-500">${p.ID_Produk}</td><td class="p-4 text-slate-800 font-bold truncate max-w-[200px]">${p.Nama_Produk}<br><span class="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded border border-blue-100 uppercase mt-1 inline-block"><i class="fa-solid fa-store mr-1"></i>${rawCabang}</span></td><td class="p-4 text-center font-black text-blue-600 text-lg" id="op-sys-${p.ID_Produk}">${p.Stok_Saat_Ini}</td><td class="p-4 text-center"><input type="number" id="op-fisik-${p.ID_Produk}" value="${p.Stok_Saat_Ini}" onkeyup="hitungSelisih('${p.ID_Produk}')" onchange="hitungSelisih('${p.ID_Produk}')" class="w-24 border border-slate-300 p-2.5 rounded-xl font-black text-center outline-none focus:border-orange-500 bg-orange-50 text-orange-700 shadow-inner"></td><td class="p-4 text-center font-black text-slate-400 text-lg" id="op-selisih-${p.ID_Produk}">0</td><td class="p-4 pr-6"><input type="text" id="op-ket-${p.ID_Produk}" placeholder="Aman / Rusak" class="w-full border border-slate-200 p-2.5 rounded-xl text-xs font-bold outline-none focus:border-orange-500 bg-slate-50"></td></tr>`; 
             }
-            // ID diganti dari index (idx) jadi ID_Produk agar aman waktu disorting
-            hO += `<tr class="hover:bg-slate-50 transition"><td class="p-4 pl-6 text-xs text-slate-500">${p.ID_Produk}</td><td class="p-4 text-slate-800 font-bold truncate max-w-[200px]">${p.Nama_Produk}<br><span class="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded border border-blue-100 uppercase mt-1 inline-block"><i class="fa-solid fa-store mr-1"></i>${rawCabang}</span></td><td class="p-4 text-center font-black text-blue-600 text-lg" id="op-sys-${p.ID_Produk}">${p.Stok_Saat_Ini}</td><td class="p-4 text-center"><input type="number" id="op-fisik-${p.ID_Produk}" value="${p.Stok_Saat_Ini}" onkeyup="hitungSelisih('${p.ID_Produk}')" onchange="hitungSelisih('${p.ID_Produk}')" class="w-24 border border-slate-300 p-2.5 rounded-xl font-black text-center outline-none focus:border-orange-500 bg-orange-50 text-orange-700 shadow-inner"></td><td class="p-4 text-center font-black text-slate-400 text-lg" id="op-selisih-${p.ID_Produk}">0</td><td class="p-4 pr-6"><input type="text" id="op-ket-${p.ID_Produk}" placeholder="Aman / Rusak" class="w-full border border-slate-200 p-2.5 rounded-xl text-xs font-bold outline-none focus:border-orange-500 bg-slate-50"></td></tr>`; 
         }); 
     } 
     
@@ -1522,11 +1560,8 @@ function filterStokUI() {
         state.data.stok.slice().reverse().forEach(m => { 
             let rawCabang = m.Cabang || 'Pusat';
             let mCabang = String(rawCabang).toUpperCase().trim();
-            if (roleNorm !== 'SUPERADMIN') {
-                if (mCabang !== myCab) return;
-            } else {
-                if (fCab !== 'SEMUA' && mCabang !== fCab) return;
-            }
+            if (roleNorm !== 'SUPERADMIN' && mCabang !== myCab) return;
+            if (roleNorm === 'SUPERADMIN' && fCab !== 'SEMUA' && mCabang !== fCab) return;
             let col = String(m.Jenis_Pergerakan).toUpperCase().includes('MASUK') ? 'text-emerald-500' : 'text-red-500'; 
             hM += `<tr class="hover:bg-slate-50 transition"><td class="p-4 pl-6 text-xs text-slate-400 font-bold">${String(m.Waktu).substring(0, 16)}<br><span class="text-[10px] text-blue-500 uppercase"><i class="fa-solid fa-store mr-1"></i>${rawCabang}</span></td><td class="p-4 font-bold text-slate-800">${m.ID_Produk}</td><td class="p-4 font-black ${col}">${m.Jenis_Pergerakan} <span class="bg-slate-100 px-2 py-1 rounded text-slate-600 ml-2 border border-slate-200">${m.Jumlah}</span></td><td class="p-4 text-xs text-slate-500 font-bold">${m.Keterangan}</td></tr>`; 
         }); 
@@ -1534,9 +1569,8 @@ function filterStokUI() {
     
     let elS = document.getElementById('tabel-pantau-body'); if(elS) elS.innerHTML = hS || `<tr><td colspan="3" class="p-8 text-center text-slate-400 font-bold">Tidak ada data untuk cabang ini.</td></tr>`; 
     let elM = document.getElementById('tabel-mutasi-body'); if(elM) elM.innerHTML = hM || `<tr><td colspan="4" class="p-8 text-center text-slate-400 font-bold">Belum ada mutasi di cabang ini.</td></tr>`; 
-    let elO = document.getElementById('tabel-opname-body'); if(elO) elO.innerHTML = hO || `<tr><td colspan="6" class="p-8 text-center text-slate-400 font-bold">Tidak ada data untuk cabang ini.</td></tr>`; 
+    let elO = document.getElementById('tabel-opname-body'); if(elO) elO.innerHTML = hO || `<tr><td colspan="6" class="p-8 text-center text-slate-400 font-bold">Pilih kategori atau tidak ada data yang cocok.</td></tr>`; 
 }
-
 function hitungSelisih(id) { 
     let sys = parseFloat(document.getElementById('op-sys-'+id).innerText) || 0; 
     let fsk = parseFloat(document.getElementById('op-fisik-'+id).value) || 0; 
@@ -1577,28 +1611,30 @@ function cetakFormOpname() {
     let roleNorm = String(state.role).toUpperCase().replace(/\s+/g, '');
     let myCab = String(state.cabang).toUpperCase().trim();
 
+    let opK = document.getElementById('opname-filter-kat') ? document.getElementById('opname-filter-kat').value : 'SEMUA';
+    let opS = document.getElementById('opname-search') ? document.getElementById('opname-search').value.toLowerCase().trim() : '';
+
     let targetCabangName = roleNorm !== 'SUPERADMIN' ? myCab : (filterCabang === 'SEMUA' ? 'Semua Cabang' : filterCabang);
     let namaToko = localStorage.getItem('sanstech_nama_toko') || "BLANGKON ERP";
-    if(targetCabangName !== 'Semua Cabang' && targetCabangName !== 'PUSAT') {
-        namaToko += " - " + targetCabangName;
-    }
+    if(targetCabangName !== 'Semua Cabang' && targetCabangName !== 'PUSAT') { namaToko += " - " + targetCabangName; }
 
-    // 1. Saring data produk sesuai cabang
     let filteredProd = [];
     if (state.data.produk && state.data.produk.length > 0) {
         filteredProd = state.data.produk.filter(p => {
             let pCabang = String(p.Cabang || 'Pusat').toUpperCase().trim();
-            if (roleNorm !== 'SUPERADMIN') return pCabang === myCab;
-            if (filterCabang !== 'SEMUA') return pCabang === filterCabang;
+            if (roleNorm !== 'SUPERADMIN' && pCabang !== myCab) return false;
+            if (roleNorm === 'SUPERADMIN' && filterCabang !== 'SEMUA' && pCabang !== filterCabang) return false;
+            
+            let kat = String(p.Kategori || "LAINNYA").toUpperCase();
+            if (opK !== 'SEMUA' && kat !== opK) return false;
+            
+            if(opS && !String(p.Nama_Produk).toLowerCase().includes(opS) && !String(p.Barcode).toLowerCase().includes(opS)) return false;
             return true;
         });
     }
 
-    if (filteredProd.length === 0) {
-        return showInlineNotif('error', 'Tidak ada data produk di cabang ini untuk dicetak!');
-    }
+    if (filteredProd.length === 0) { return showInlineNotif('error', 'Tidak ada data produk yang cocok untuk dicetak!'); }
 
-    // 2. Sorting Otomatis Berdasarkan Kategori -> Merek
     filteredProd.sort((a, b) => {
         let katA = String(a.Kategori || "LAINNYA").toUpperCase();
         let katB = String(b.Kategori || "LAINNYA").toUpperCase();
@@ -1609,8 +1645,6 @@ function cetakFormOpname() {
 
     let iframe = document.getElementById('print-iframe'); 
     let doc = iframe.contentWindow.document; 
-    
-    // Desain HTML Kertas Kerja (Ukuran A4)
     let html = `<html><head><title>Form Stok Opname</title><style>
         @page { size: A4; margin: 15mm; }
         body { font-family: Arial, sans-serif; color: black; font-size: 11px; padding: 0; margin: 0; }
@@ -1627,23 +1661,16 @@ function cetakFormOpname() {
     
     html += `<h2>FORM KERTAS KERJA STOK OPNAME FISIK</h2>`;
     html += `<div class="info">
-        <div><b>Toko/Cabang:</b> ${namaToko}</div>
+        <div><b>Toko/Cabang:</b> ${namaToko}<br><b>Filter:</b> Kategori ${opK === 'SEMUA' ? 'Semua' : opK}</div>
         <div style="text-align:right;"><b>Tanggal:</b> ${new Date().toLocaleString('id-ID')}<br><b>Dicetak Oleh:</b> ${state.user}</div>
     </div>`;
     
     html += `<table><thead><tr>
-        <th width="5%">No</th>
-        <th width="15%">ID Produk / Barcode</th>
-        <th width="35%">Nama Produk</th>
-        <th width="10%">Stok Sistem</th>
-        <th width="15%">Stok Fisik Aktual</th>
-        <th width="20%">Keterangan / Catatan</th>
+        <th width="5%">No</th><th width="15%">ID Produk / Barcode</th><th width="35%">Nama Produk</th>
+        <th width="10%">Stok Sistem</th><th width="15%">Stok Fisik Aktual</th><th width="20%">Keterangan / Catatan</th>
     </tr></thead><tbody>`;
     
-    let currentGroup = "";
-    let no = 1;
-
-    // 3. Render Tabel Form Print (Dikelompokkan)
+    let currentGroup = ""; let no = 1;
     filteredProd.forEach((p) => {
         let kat = String(p.Kategori || "LAINNYA").toUpperCase();
         let brand = String(p.Nama_Produk || "TANPA NAMA").trim().split(' ')[0].toUpperCase();
@@ -1653,35 +1680,15 @@ function cetakFormOpname() {
             html += `<tr><td colspan="6" class="group-header">${group}</td></tr>`;
             currentGroup = group;
         }
-
         let bc = p.Barcode ? `<br><span style="font-size:9px; font-family:monospace;">${p.Barcode}</span>` : '';
-        html += `<tr>
-            <td style="text-align:center;">${no++}</td>
-            <td><b>${p.ID_Produk}</b>${bc}</td>
-            <td><b>${p.Nama_Produk}</b><br><span style="font-size:9px; color:#555;">Satuan: ${p.Satuan}</span></td>
-            <td style="text-align:center;">${p.Stok_Saat_Ini}</td>
-            <td></td>
-            <td></td>
-        </tr>`;
+        html += `<tr><td style="text-align:center;">${no++}</td><td><b>${p.ID_Produk}</b>${bc}</td><td><b>${p.Nama_Produk}</b><br><span style="font-size:9px; color:#555;">Satuan: ${p.Satuan}</span></td><td style="text-align:center;">${p.Stok_Saat_Ini}</td><td></td><td></td></tr>`;
     });
     
     html += `</tbody></table>`;
-    
-    // Kolom Tanda Tangan
-    html += `<div class="ttd-container">
-        <div class="ttd-box">Dihitung Oleh (Checker),<br><span class="line"></span><br>Staff Gudang</div>
-        <div class="ttd-box">Diinput Oleh (Admin),<br><span class="line"></span><br>${state.user}</div>
-        <div class="ttd-box">Mengetahui,<br><span class="line"></span><br>Kepala Toko / SPV</div>
-    </div>`;
-    
-    html += `</body></html>`;
+    html += `<div class="ttd-container"><div class="ttd-box">Dihitung Oleh (Checker),<br><span class="line"></span><br>Staff Gudang</div><div class="ttd-box">Diinput Oleh (Admin),<br><span class="line"></span><br>${state.user}</div><div class="ttd-box">Mengetahui,<br><span class="line"></span><br>Kepala Toko / SPV</div></div></body></html>`;
     
     doc.open(); doc.write(html); doc.close(); 
-    
-    setTimeout(() => { 
-        iframe.contentWindow.focus(); 
-        iframe.contentWindow.print(); 
-    }, 800);
+    setTimeout(() => { iframe.contentWindow.focus(); iframe.contentWindow.print(); }, 800);
 }
 async function prosesTransferGudang() {
   let cbgTujuan = document.getElementById('tf-tujuan').value.trim(); let prdVal = document.getElementById('tf-produk').value.trim(); let qty = parseFloat(document.getElementById('tf-qty').value);
