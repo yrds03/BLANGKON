@@ -1453,7 +1453,7 @@ function viewStok() {
             <div class="tab-custom text-indigo-500" onclick="switchStokTab('transfer', this)"><i class="fa-solid fa-truck-fast mr-1"></i> Transfer Cabang</div>
         </div> 
         <div id="stok-pantau" class="flex-1 overflow-auto rounded-xl border border-slate-200 bg-white">
-            <table class="w-full text-left min-w-[700px]"><thead class="bg-slate-100 text-[10px] text-slate-500 font-black uppercase tracking-wider sticky top-0 z-10"><tr><th class="p-4 pl-6">ID Produk</th><th class="p-4">Nama Produk & Lokasi</th><th class="p-4">Sisa Stok Aktual</th></tr></thead><tbody id="tabel-pantau-body" class="divide-y divide-slate-100 text-sm font-bold text-slate-700"></tbody></table>
+            <table class="w-full text-left min-w-[700px]"><thead class="bg-slate-100 text-[10px] text-slate-500 font-black uppercase tracking-wider sticky top-0 z-10"><tr><th class="p-4 pl-6">ID Produk</th><th class="p-4">Nama Produk & Lokasi</th><th class="p-4">Total Sisa Stok</th></tr></thead><tbody id="tabel-pantau-body" class="divide-y divide-slate-100 text-sm font-bold text-slate-700"></tbody></table>
         </div> 
         <div id="stok-mutasi" class="hidden flex-1 overflow-auto rounded-xl border border-slate-200 bg-white">
             <table class="w-full text-left min-w-[700px]"><thead class="bg-slate-100 text-[10px] text-slate-500 font-black uppercase tracking-wider sticky top-0 z-10"><tr><th class="p-4 pl-6">Waktu & Cabang</th><th class="p-4">ID Produk</th><th class="p-4">Pergerakan</th><th class="p-4">Keterangan</th></tr></thead><tbody id="tabel-mutasi-body" class="divide-y divide-slate-100 text-sm font-bold text-slate-700"></tbody></table>
@@ -1463,10 +1463,9 @@ function viewStok() {
                 <div class="flex flex-wrap justify-between items-center gap-3">
                     <p class="font-bold hidden md:block">Filter Kertas Kerja Opname:</p>
                     
-                    <!-- FILTER KHUSUS OPNAME -->
                     <div class="flex gap-2 flex-1 md:flex-none">
                        <select id="opname-filter-kat" onchange="filterStokUI()" class="border border-orange-300 p-2 rounded-lg text-xs font-bold outline-none text-orange-800 bg-white shadow-sm">${opsiKat}</select>
-                       <input type="text" id="opname-search" onkeyup="filterStokUI()" class="border border-orange-300 p-2 rounded-lg text-xs font-bold outline-none w-full md:w-48 bg-white shadow-sm" placeholder="Cari Produk/IMEI...">
+                       <input type="text" id="opname-search" onkeyup="filterStokUI()" class="border border-orange-300 p-2 rounded-lg text-xs font-bold outline-none w-full md:w-48 bg-white shadow-sm" placeholder="Cari Nama Produk...">
                     </div>
 
                     <div class="flex gap-2 w-full md:w-auto mt-2 md:mt-0">
@@ -1474,11 +1473,12 @@ function viewStok() {
                         <button onclick="simpanOpnameMassal()" class="flex-1 md:flex-none bg-orange-600 text-white font-bold px-5 py-2 rounded-lg shadow hover:bg-orange-700 transition">Selesaikan Opname</button>
                     </div>
                 </div>
+                <p class="text-[10px] font-bold text-orange-600 bg-white p-2 rounded border border-orange-100"><i class="fa-solid fa-lightbulb text-orange-500 mr-1"></i> <b>SISTEM AUTO-GROUPING:</b> Barang dengan <b>Nama yang Sama</b> akan digabung jadi 1 baris untuk memudahkan hitung Total QTY fisik.</p>
             </div> 
             <div class="flex-1 overflow-auto rounded-xl border border-slate-200 bg-white relative">
                 <table class="w-full text-left min-w-[800px]">
                     <thead class="bg-slate-100 text-[10px] text-slate-500 font-black uppercase tracking-wider sticky top-0 z-10 shadow-sm">
-                        <tr><th class="p-4 pl-6">ID Produk</th><th class="p-4">Nama Produk & Lokasi</th><th class="p-4 text-center">Stok Sistem</th><th class="p-4 text-center">Stok Fisik Aktual</th><th class="p-4 text-center">Selisih</th><th class="p-4 pr-6">Catatan</th></tr>
+                        <tr><th class="p-4 pl-6">ID / Jml Item</th><th class="p-4">Nama Produk & Lokasi</th><th class="p-4 text-center">Total Stok Sistem</th><th class="p-4 text-center">Total Fisik Aktual</th><th class="p-4 text-center">Selisih</th><th class="p-4 pr-6">Catatan</th></tr>
                     </thead>
                     <tbody id="tabel-opname-body" class="divide-y divide-slate-100 text-sm font-bold text-slate-700"></tbody>
                     
@@ -1495,6 +1495,7 @@ function viewStok() {
                 </table>
             </div> 
         </div> 
+        <!-- (BAGIAN LACAK & TRANSFER CABANG BIARKAN SEPERTI ASLINYA) -->
         <div id="stok-lacak" class="hidden flex-1"><div class="bg-slate-50 p-6 rounded-2xl shadow-sm border border-slate-200 max-w-lg mx-auto mt-6"><h3 class="font-bold text-center mb-4 text-lg">Pelacakan Posisi IMEI / Barcode</h3><div class="flex gap-2 mb-4"><input type="text" id="input-lacak-imei" placeholder="Scan/Ketik Barcode IMEI HP..." class="w-full border border-slate-300 p-3.5 rounded-xl font-bold bg-white focus:border-blue-500 outline-none"><button onclick="bukaKamera('lacak')" class="bg-blue-600 hover:bg-blue-700 text-white px-5 rounded-xl shadow-md transition" title="Scan Kamera"><i class="fa-solid fa-camera text-xl"></i></button></div><button onclick="lacakImeiBarang()" class="w-full bg-blue-600 text-white font-bold py-3.5 rounded-xl shadow-md hover:bg-blue-700 transition"><i class="fa-solid fa-search mr-2"></i>Lacak Posisi Sekarang</button></div><div id="hasil-lacak-imei" class="mt-6 hidden max-w-2xl mx-auto space-y-3"></div></div> 
         <div id="stok-transfer" class="hidden flex-1"><div class="bg-slate-50 p-6 rounded-2xl shadow-sm border border-slate-200 max-w-2xl mx-auto mt-6"><h3 class="font-bold mb-4 text-lg border-b pb-2">Pindahkan Stok ke Cabang Lain</h3><div class="grid grid-cols-2 gap-4 mb-4"><div><label class="text-xs font-bold text-slate-500">Dari Gudang</label><input type="text" value="${state.cabang}" class="w-full border border-slate-200 p-3 rounded-xl bg-slate-100 font-bold text-slate-500" disabled></div><div><label class="text-xs font-bold text-slate-500">Tujuan Cabang</label><select id="tf-tujuan" class="w-full border border-slate-200 p-3 rounded-xl bg-white font-bold outline-none focus:border-blue-500">${opsiCabangTFHtml}</select></div></div><div class="flex gap-2 mb-4"><div class="relative flex-1"><i class="fa-solid fa-barcode absolute left-4 top-3.5 text-slate-400"></i><input type="text" id="tf-produk" placeholder="Scan Barcode / ID Produk..." class="w-full border border-slate-200 p-3 pl-11 rounded-xl font-bold bg-white outline-none focus:border-blue-500"></div><button onclick="bukaKamera('tf')" class="bg-blue-600 text-white w-12 rounded-xl shadow hover:bg-blue-700 transition"><i class="fa-solid fa-camera"></i></button></div><div class="flex gap-4"><input type="number" id="tf-qty" placeholder="Qty Dikirim" class="w-1/3 border border-slate-200 p-3 rounded-xl font-bold bg-white outline-none focus:border-blue-500"><button id="btn-tf" class="w-2/3 bg-slate-800 text-white font-bold py-3 rounded-xl shadow-md hover:bg-slate-900 transition" onclick="prosesTransferGudang()">Proses Pindah Gudang</button></div></div></div> 
     </div> `; 
@@ -1509,7 +1510,7 @@ function filterStokUI() {
     let hS = "", hM = "", hO = ""; 
 
     if(state.data.produk && state.data.produk.length > 0) { 
-        // Filter Cabang Global
+        // 1. Filter Cabang Global Dulu
         let filteredProd = state.data.produk.filter(p => {
             let pCabang = String(p.Cabang || 'Pusat').toUpperCase().trim();
             if (roleNorm !== 'SUPERADMIN') return pCabang === myCab;
@@ -1517,8 +1518,30 @@ function filterStokUI() {
             return true;
         });
 
-        // Urutkan Abjad A-Z & Kategori
-        filteredProd.sort((a, b) => {
+        // 2. PROSES GROUPING (Sihir Gabung Barang Berdasarkan Nama)
+        let groupedObj = {};
+        filteredProd.forEach(p => {
+            let nameKey = String(p.Nama_Produk).trim().toUpperCase();
+            if(!groupedObj[nameKey]) {
+                groupedObj[nameKey] = {
+                    Nama_Produk: p.Nama_Produk,
+                    Kategori: p.Kategori,
+                    Cabang: p.Cabang || 'Pusat',
+                    Satuan: p.Satuan,
+                    Stok_Saat_Ini: 0,
+                    Stok_Minimum: 0,
+                    Products: [] // Menyimpan rincian IMEI di dalamnya
+                };
+            }
+            groupedObj[nameKey].Stok_Saat_Ini += parseFloat(p.Stok_Saat_Ini) || 0;
+            groupedObj[nameKey].Stok_Minimum = Math.max(groupedObj[nameKey].Stok_Minimum, parseFloat(p.Stok_Minimum) || 0);
+            groupedObj[nameKey].Products.push(p);
+        });
+
+        let groupedArr = Object.values(groupedObj);
+
+        // 3. Urutkan Abjad A-Z & Kategori
+        groupedArr.sort((a, b) => {
             let katA = String(a.Kategori || "LAINNYA").toUpperCase();
             let katB = String(b.Kategori || "LAINNYA").toUpperCase();
             if(katA < katB) return -1;
@@ -1526,47 +1549,63 @@ function filterStokUI() {
             return String(a.Nama_Produk || "").localeCompare(String(b.Nama_Produk || ""));
         });
 
+        // Render untuk Tabel Pantau Stok Biasa
         let currentKatS = "";
-        let currentKatO = "";
-        
-        // Ambil Nilai Filter Khusus Opname
-        let opK = document.getElementById('opname-filter-kat') ? document.getElementById('opname-filter-kat').value : 'SEMUA';
-        let opS = document.getElementById('opname-search') ? document.getElementById('opname-search').value.toLowerCase().trim() : '';
-
-        filteredProd.forEach((p) => { 
-            let rawCabang = p.Cabang || 'Pusat';
-            let isHabis = parseFloat(p.Stok_Saat_Ini) <= 0; 
-            let isWarning = parseFloat(p.Stok_Saat_Ini) <= parseFloat(p.Stok_Minimum || 0) && !isHabis;
+        groupedArr.forEach((g) => { 
+            let isHabis = parseFloat(g.Stok_Saat_Ini) <= 0; 
+            let isWarning = parseFloat(g.Stok_Saat_Ini) <= parseFloat(g.Stok_Minimum || 0) && !isHabis;
             let stClass = isHabis ? "text-red-500 bg-red-50 px-2 py-1 rounded border border-red-200" : (isWarning ? "text-orange-500 bg-orange-50 px-2 py-1 rounded border border-orange-200" : "text-emerald-600 font-black"); 
             let warnIcon = isWarning ? `<i class="fa-solid fa-triangle-exclamation text-orange-500 ml-2" title="Stok Menipis!"></i>` : '';
             
-            let kat = String(p.Kategori || "LAINNYA").toUpperCase();
+            let kat = String(g.Kategori || "LAINNYA").toUpperCase();
 
-            // PEMANTAUAN STOK BIASA (Selalu muncul semua berdasarkan cabang)
             if (kat !== currentKatS) {
                 hS += `<tr class="bg-slate-200/70 border-y border-slate-300"><td colspan="3" class="p-3 pl-6 text-xs font-black text-slate-700 uppercase tracking-widest"><i class="fa-solid fa-tags mr-2 text-blue-500"></i> KATEGORI: ${kat}</td></tr>`;
                 currentKatS = kat;
             }
-            hS += `<tr class="hover:bg-slate-50 transition"><td class="p-4 pl-6 text-xs text-slate-500">${p.ID_Produk}</td><td class="p-4 text-slate-800 font-bold">${p.Nama_Produk}<br><span class="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded border border-blue-100 uppercase mt-1 inline-block"><i class="fa-solid fa-store mr-1"></i>${rawCabang}</span></td><td class="p-4"><span class="${stClass} text-lg">${p.Stok_Saat_Ini}</span> <span class="text-[10px] font-bold text-slate-400 uppercase">${p.Satuan||''}</span>${warnIcon}</td></tr>`; 
             
-            // STOK OPNAME (Punya filter Kategori & Search sendiri)
+            // Ubah ID menjadi Label QTY jika lebih dari 1
+            let idLabel = g.Products.length > 1 ? `<span class="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-[10px] font-black">${g.Products.length} UNIT/IMEI</span>` : `<span class="text-xs">${g.Products[0].ID_Produk}</span>`;
+
+            hS += `<tr class="hover:bg-slate-50 transition"><td class="p-4 pl-6 text-slate-500">${idLabel}</td><td class="p-4 text-slate-800 font-bold">${g.Nama_Produk}<br><span class="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded border border-blue-100 uppercase mt-1 inline-block"><i class="fa-solid fa-store mr-1"></i>${g.Cabang}</span></td><td class="p-4"><span class="${stClass} text-lg">${g.Stok_Saat_Ini}</span> <span class="text-[10px] font-bold text-slate-400 uppercase">${g.Satuan||''}</span>${warnIcon}</td></tr>`; 
+        }); 
+
+        // 4. Render untuk STOK OPNAME (Punya filter Kategori & Search sendiri)
+        let opK = document.getElementById('opname-filter-kat') ? document.getElementById('opname-filter-kat').value : 'SEMUA';
+        let opS = document.getElementById('opname-search') ? document.getElementById('opname-search').value.toLowerCase().trim() : '';
+
+        // Saring array yang SUDAH DIGRUP khusus untuk Opname
+        let opnameGroups = groupedArr.filter(g => {
+            let kat = String(g.Kategori || "LAINNYA").toUpperCase();
             let passOpKat = (opK === 'SEMUA' || kat === opK);
-            let passOpSearch = (opS === '' || String(p.Nama_Produk).toLowerCase().includes(opS) || String(p.Barcode).toLowerCase().includes(opS));
-            
-            if(passOpKat && passOpSearch) {
-                let brand = String(p.Nama_Produk || "TANPA NAMA").trim().split(' ')[0].toUpperCase();
+            let passOpSearch = (opS === '' || String(g.Nama_Produk).toLowerCase().includes(opS));
+            return passOpKat && passOpSearch;
+        });
+
+        state.tempOpnameGroup = opnameGroups; // Simpan di memori untuk proses Simpan Massal & Print
+        
+        let currentKatO = "";
+        if(opnameGroups.length === 0) {
+             hO = `<tr><td colspan="6" class="p-8 text-center text-slate-400 font-bold">Data Opname kosong atau tidak ditemukan.</td></tr>`;
+        } else {
+            opnameGroups.forEach((g, idx) => {
+                let kat = String(g.Kategori || "LAINNYA").toUpperCase();
+                let brand = String(g.Nama_Produk || "TANPA NAMA").trim().split(' ')[0].toUpperCase();
                 let groupOpname = `${kat} - Merek: ${brand}`;
 
                 if (groupOpname !== currentKatO) {
                     hO += `<tr class="bg-orange-100 border-y border-orange-200"><td colspan="6" class="p-3 pl-6 text-xs font-black text-orange-800 uppercase tracking-widest"><i class="fa-solid fa-box-open mr-2"></i> ${kat} <span class="mx-2">|</span> MEREK: ${brand}</td></tr>`;
                     currentKatO = groupOpname;
                 }
-                hO += `<tr class="hover:bg-slate-50 transition"><td class="p-4 pl-6 text-xs text-slate-500">${p.ID_Produk}</td><td class="p-4 text-slate-800 font-bold truncate max-w-[200px]">${p.Nama_Produk}<br><span class="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded border border-blue-100 uppercase mt-1 inline-block"><i class="fa-solid fa-store mr-1"></i>${rawCabang}</span></td><td class="p-4 text-center font-black text-blue-600 text-lg" id="op-sys-${p.ID_Produk}">${p.Stok_Saat_Ini}</td><td class="p-4 text-center"><input type="number" id="op-fisik-${p.ID_Produk}" value="${p.Stok_Saat_Ini}" onkeyup="hitungSelisih('${p.ID_Produk}')" onchange="hitungSelisih('${p.ID_Produk}')" class="w-24 border border-slate-300 p-2.5 rounded-xl font-black text-center outline-none focus:border-orange-500 bg-orange-50 text-orange-700 shadow-inner"></td><td class="p-4 text-center font-black text-slate-400 text-lg" id="op-selisih-${p.ID_Produk}">0</td><td class="p-4 pr-6"><input type="text" id="op-ket-${p.ID_Produk}" placeholder="Aman / Rusak" class="w-full border border-slate-200 p-2.5 rounded-xl text-xs font-bold outline-none focus:border-orange-500 bg-slate-50"></td></tr>`; 
-            }
-        }); 
+                
+                let idLabel = g.Products.length > 1 ? `<span class="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-[10px] font-black">${g.Products.length} UNIT/IMEI</span>` : `<span class="text-xs">${g.Products[0].ID_Produk}</span>`;
+
+                hO += `<tr class="hover:bg-slate-50 transition"><td class="p-4 pl-6 text-slate-500">${idLabel}</td><td class="p-4 text-slate-800 font-bold truncate max-w-[200px]">${g.Nama_Produk}<br><span class="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded border border-blue-100 uppercase mt-1 inline-block"><i class="fa-solid fa-store mr-1"></i>${g.Cabang}</span></td><td class="p-4 text-center font-black text-blue-600 text-lg" id="op-sys-${idx}">${g.Stok_Saat_Ini}</td><td class="p-4 text-center"><input type="number" id="op-fisik-${idx}" value="${g.Stok_Saat_Ini}" onkeyup="hitungSelisih('${idx}')" onchange="hitungSelisih('${idx}')" class="w-24 border border-slate-300 p-2.5 rounded-xl font-black text-center outline-none focus:border-orange-500 bg-orange-50 text-orange-700 shadow-inner"></td><td class="p-4 text-center font-black text-slate-400 text-lg" id="op-selisih-${idx}">0</td><td class="p-4 pr-6"><input type="text" id="op-ket-${idx}" placeholder="Aman / Rusak" class="w-full border border-slate-200 p-2.5 rounded-xl text-xs font-bold outline-none focus:border-orange-500 bg-slate-50"></td></tr>`; 
+            });
+        }
     } 
     
-    // MUTASI STOK
+    // MUTASI STOK (Tetap muncul satu-satu sesuai riwayat pergerakan)
     if(state.data.stok && state.data.stok.length > 0) { 
         state.data.stok.slice().reverse().forEach(m => { 
             let rawCabang = m.Cabang || 'Pusat';
@@ -1618,17 +1657,44 @@ function switchStokTab(tab, el) { ['pantau','mutasi','lacak','opname', 'transfer
 
 async function simpanOpnameMassal() { 
     let payloadItems = []; 
-    if(state.data.produk) { 
-        state.data.produk.forEach((p) => { 
-            let fisikEl = document.getElementById('op-fisik-'+p.ID_Produk);
-            if(fisikEl) { // Hanya proses jika elemen di-render (masuk filter)
-                let fsk = parseFloat(fisikEl.value) || 0; 
-                let sys = parseFloat(p.Stok_Saat_Ini) || 0; 
-                let ketEl = document.getElementById('op-ket-'+p.ID_Produk);
+    if(state.tempOpnameGroup && state.tempOpnameGroup.length > 0) { 
+        state.tempOpnameGroup.forEach((g, idx) => { 
+            let fisikEl = document.getElementById('op-fisik-'+idx);
+            if(fisikEl) { 
+                let fskTotal = parseFloat(fisikEl.value) || 0; 
+                let sysTotal = g.Stok_Saat_Ini; 
+                let ketEl = document.getElementById('op-ket-'+idx);
                 let ket = ketEl ? ketEl.value || "Pengecekan Harian" : "Pengecekan Harian"; 
-                let selisih = fsk - sys; 
-                if(selisih !== 0 || ket !== "Pengecekan Harian") { 
-                    payloadItems.push({ id: p.ID_Produk, fisik: fsk, selisih: selisih, keterangan: ket, cabang: state.cabang }); 
+                let selisihTotal = fskTotal - sysTotal; 
+                
+                if(selisihTotal !== 0 || ket !== "Pengecekan Harian") { 
+                    // LOGIKA DISTRIBUSI: Membagi selisih total ke dalam masing-masing IMEI
+                    let sisaFsk = fskTotal;
+                    for (let i = 0; i < g.Products.length; i++) {
+                        let p = g.Products[i];
+                        let orig = parseFloat(p.Stok_Saat_Ini) || 0;
+                        let alloc = 0;
+
+                        if (selisihTotal < 0) {
+                            alloc = Math.min(orig, sisaFsk); // Kurangi sampai sisaFsk habis
+                            sisaFsk -= alloc;
+                        } else {
+                            alloc = orig;
+                            if (i === 0) alloc += selisihTotal; // Tumpuk kelebihan ke IMEI pertama
+                            sisaFsk -= alloc;
+                        }
+
+                        let diff = alloc - orig;
+                        if (diff !== 0 || ket !== "Pengecekan Harian") {
+                            payloadItems.push({ 
+                                id: p.ID_Produk, 
+                                fisik: alloc, 
+                                selisih: diff, 
+                                keterangan: ket, 
+                                cabang: state.cabang 
+                            }); 
+                        }
+                    }
                 } 
             }
         }); 
@@ -1640,45 +1706,25 @@ async function simpanOpnameMassal() {
 }
 
 function cetakFormOpname() {
+    if (!state.tempOpnameGroup || state.tempOpnameGroup.length === 0) { 
+        return showInlineNotif('error', 'Tidak ada data produk yang cocok untuk dicetak!'); 
+    }
+
+    let namaToko = localStorage.getItem('sanstech_nama_toko') || "BLANGKON ERP";
     let filterEl = document.getElementById('stok-filter-cabang');
     let filterCabang = filterEl ? filterEl.value.toUpperCase().trim() : 'SEMUA';
     let roleNorm = String(state.role).toUpperCase().replace(/\s+/g, '');
     let myCab = String(state.cabang).toUpperCase().trim();
-
-    let opK = document.getElementById('opname-filter-kat') ? document.getElementById('opname-filter-kat').value : 'SEMUA';
-    let opS = document.getElementById('opname-search') ? document.getElementById('opname-search').value.toLowerCase().trim() : '';
+    
+    let opKatEl = document.getElementById('opname-filter-kat');
+    let namaKategori = opKatEl ? opKatEl.options[opKatEl.selectedIndex].text : 'Semua';
 
     let targetCabangName = roleNorm !== 'SUPERADMIN' ? myCab : (filterCabang === 'SEMUA' ? 'Semua Cabang' : filterCabang);
-    let namaToko = localStorage.getItem('sanstech_nama_toko') || "BLANGKON ERP";
     if(targetCabangName !== 'Semua Cabang' && targetCabangName !== 'PUSAT') { namaToko += " - " + targetCabangName; }
-
-    let filteredProd = [];
-    if (state.data.produk && state.data.produk.length > 0) {
-        filteredProd = state.data.produk.filter(p => {
-            let pCabang = String(p.Cabang || 'Pusat').toUpperCase().trim();
-            if (roleNorm !== 'SUPERADMIN' && pCabang !== myCab) return false;
-            if (roleNorm === 'SUPERADMIN' && filterCabang !== 'SEMUA' && pCabang !== filterCabang) return false;
-            
-            let kat = String(p.Kategori || "LAINNYA").toUpperCase();
-            if (opK !== 'SEMUA' && kat !== opK) return false;
-            
-            if(opS && !String(p.Nama_Produk).toLowerCase().includes(opS) && !String(p.Barcode).toLowerCase().includes(opS)) return false;
-            return true;
-        });
-    }
-
-    if (filteredProd.length === 0) { return showInlineNotif('error', 'Tidak ada data produk yang cocok untuk dicetak!'); }
-
-    filteredProd.sort((a, b) => {
-        let katA = String(a.Kategori || "LAINNYA").toUpperCase();
-        let katB = String(b.Kategori || "LAINNYA").toUpperCase();
-        if(katA < katB) return -1;
-        if(katA > katB) return 1;
-        return String(a.Nama_Produk || "").localeCompare(String(b.Nama_Produk || ""));
-    });
 
     let iframe = document.getElementById('print-iframe'); 
     let doc = iframe.contentWindow.document; 
+    
     let html = `<html><head><title>Form Stok Opname</title><style>
         @page { size: A4; margin: 15mm; }
         body { font-family: Arial, sans-serif; color: black; font-size: 11px; padding: 0; margin: 0; }
@@ -1695,35 +1741,50 @@ function cetakFormOpname() {
     
     html += `<h2>FORM KERTAS KERJA STOK OPNAME FISIK</h2>`;
     html += `<div class="info">
-        <div><b>Toko/Cabang:</b> ${namaToko}<br><b>Filter:</b> Kategori ${opK === 'SEMUA' ? 'Semua' : opK}</div>
+        <div><b>Toko/Cabang:</b> ${namaToko}<br><b>Filter Kategori:</b> ${namaKategori}</div>
         <div style="text-align:right;"><b>Tanggal:</b> ${new Date().toLocaleString('id-ID')}<br><b>Dicetak Oleh:</b> ${state.user}</div>
     </div>`;
     
     html += `<table><thead><tr>
-        <th width="5%">No</th><th width="15%">ID Produk / Barcode</th><th width="35%">Nama Produk</th>
-        <th width="10%">Stok Sistem</th><th width="15%">Stok Fisik Aktual</th><th width="20%">Keterangan / Catatan</th>
+        <th width="5%">No</th>
+        <th width="12%">Jml Unit/IMEI</th>
+        <th width="38%">Nama Produk & Satuan</th>
+        <th width="10%">Total Sistem</th>
+        <th width="15%">Total Fisik Aktual</th>
+        <th width="20%">Catatan Selisih</th>
     </tr></thead><tbody>`;
     
     let currentGroup = ""; let no = 1; let totalSysPrint = 0;
-    filteredProd.forEach((p) => {
-        let kat = String(p.Kategori || "LAINNYA").toUpperCase();
-        let brand = String(p.Nama_Produk || "TANPA NAMA").trim().split(' ')[0].toUpperCase();
+    
+    // Looping data yang sudah digabungkan dari tempOpnameGroup
+    state.tempOpnameGroup.forEach((g) => {
+        let kat = String(g.Kategori || "LAINNYA").toUpperCase();
+        let brand = String(g.Nama_Produk || "TANPA NAMA").trim().split(' ')[0].toUpperCase();
         let group = `KATEGORI: ${kat} | MEREK: ${brand}`;
 
         if(group !== currentGroup) {
             html += `<tr><td colspan="6" class="group-header">${group}</td></tr>`;
             currentGroup = group;
         }
-        let bc = p.Barcode ? `<br><span style="font-size:9px; font-family:monospace;">${p.Barcode}</span>` : '';
-        html += `<tr><td style="text-align:center;">${no++}</td><td><b>${p.ID_Produk}</b>${bc}</td><td><b>${p.Nama_Produk}</b><br><span style="font-size:9px; color:#555;">Satuan: ${p.Satuan}</span></td><td style="text-align:center;">${p.Stok_Saat_Ini}</td><td></td><td></td></tr>`;
+        
+        let idLabel = g.Products.length > 1 ? `<b>${g.Products.length} Unit</b>` : `<span style="font-size:9px;">${g.Products[0].ID_Produk}</span>`;
+
+        html += `<tr>
+            <td style="text-align:center;">${no++}</td>
+            <td style="text-align:center;">${idLabel}</td>
+            <td><b>${g.Nama_Produk}</b><br><span style="font-size:9px; color:#555;">Satuan: ${g.Satuan}</span></td>
+            <td style="text-align:center; font-weight:bold; font-size:14px;">${g.Stok_Saat_Ini}</td>
+            <td></td>
+            <td></td>
+        </tr>`;
         
         // HITUNG TOTAL UNTUK CETAK KERTAS
-        totalSysPrint += parseFloat(p.Stok_Saat_Ini) || 0;
+        totalSysPrint += parseFloat(g.Stok_Saat_Ini) || 0;
     });
     
     // TAMBAHKAN BARIS TOTAL DI KERTAS CETAK
     html += `<tr>
-        <td colspan="3" style="text-align:right; font-weight:bold; padding:8px;">TOTAL QTY KESELURUHAN:</td>
+        <td colspan="3" style="text-align:right; font-weight:bold; padding:8px;">TOTAL KESELURUHAN (QTY):</td>
         <td style="text-align:center; font-weight:bold; font-size:14px;">${totalSysPrint}</td>
         <td></td><td></td>
     </tr>`;
