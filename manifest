@@ -1,0 +1,20 @@
+{
+  "name": "BLANGKON ERP & POS",
+  "short_name": "BLANGKON",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f1f5f9",
+  "theme_color": "#2563eb",
+  "icons": [
+    {
+      "src": "logo1.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "logo1.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

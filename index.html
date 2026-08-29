@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>BLANGKON ERP & POS</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#2563eb">
+  
+  <style>
+    body { background-color: #f1f5f9; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; overflow-x: hidden; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; } 
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+    .menu-sidebar { transition: all 0.2s ease; border-radius: 8px; margin-bottom: 4px; color: #94a3b8; cursor: pointer; }
+    .menu-sidebar:hover { background-color: rgba(255, 255, 255, 0.05); color: white; }
+    .menu-sidebar.active { background-color: #eff6ff; color: #1d4ed8; font-weight: 800; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+    .menu-sidebar.active i { color: #2563eb; }
+    .tab-custom { cursor:pointer; padding-bottom:0.5rem; border-bottom: 2px solid transparent; color: #94a3b8; font-weight: 700; transition: all 0.2s; white-space: nowrap; }
+    .tab-custom.active { border-bottom-color: #2563eb; color: #2563eb; }
+    .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  </style>
+</head>
+<body class="text-slate-800">
+
+<!-- LOADING MUTER GLOBAL -->
+<div id="global-loader" class="fixed inset-0 bg-slate-900/80 z-[99999] hidden flex-col items-center justify-center backdrop-blur-sm">
+  <div class="loader mb-4 w-12 h-12" style="border-top-color: #3b82f6; border-width: 6px;"></div>
+  <p class="font-black text-white text-lg tracking-widest animate-pulse">SINKRONISASI...</p>
+  <p class="text-blue-300 text-xs font-bold mt-2">Menyimpan & Menarik Data Terbaru</p>
+</div>
+
+<iframe id="print-iframe" style="position:absolute; top:-9999px; width:0; height:0; border:none;"></iframe>
+<input type="file" id="kamera-input" accept="image/*" capture="environment" style="display:none;" onchange="prosesFotoBarcode(event)">
+<input type="file" id="qris-file-input" accept="image/*" style="display:none;" onchange="handleQRISUpload(event)">
+<div id="reader" style="display:none;"></div>
+
+<div id="mobile-sidebar" class="fixed inset-0 bg-slate-900/95 z-[9999] hidden flex-col transition-all">
+  <div class="p-6 flex justify-between items-center text-white border-b border-white/10">
+    <div class="font-black text-xl flex items-center gap-3"><img src="logo1.png" alt="Logo" class="w-8 h-8 object-contain">BLANGKON</div>
+    <button onclick="toggleMobileMenu()" class="text-red-400 text-3xl"><i class="fa-solid fa-xmark"></i></button>
+  </div>
+  <div class="flex-1 p-4 overflow-y-auto text-sm font-bold space-y-1 text-slate-300" id="mobile-menu-container"></div>
+</div>
+
+<div id="custom-modal" class="fixed inset-0 bg-black/60 z-[9999] hidden items-center justify-center p-4">
+  <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center">
+    <div id="modal-icon" class="text-4xl mb-4 text-orange-500"><i class="fa-solid fa-triangle-exclamation"></i></div>
+    <h3 id="modal-title" class="font-black text-xl mb-2 text-slate-800">Konfirmasi</h3>
+    <p id="modal-desc" class="text-sm text-slate-500 mb-6">Apakah Anda yakin?</p>
+    <div class="flex gap-3 justify-center">
+      <button onclick="tutupModal()" class="w-1/2 px-5 py-2.5 rounded-xl font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 transition">Batal</button>
+      <button id="modal-btn-confirm" class="w-1/2 px-5 py-2.5 rounded-xl font-bold bg-blue-600 text-white shadow-md hover:bg-blue-700 transition">Ya, Lanjut</button>
+    </div>
+  </div>
+</div>
+
+<div id="modal-wa" class="fixed inset-0 bg-black/60 z-[9999] hidden items-center justify-center p-4">
+  <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center">
+    <div class="text-4xl mb-4 text-emerald-500"><i class="fa-brands fa-whatsapp"></i></div>
+    <h3 class="font-black text-xl mb-2 text-slate-800">Kirim Struk via WA</h3>
+    <p class="text-sm text-slate-500 mb-4">Masukkan Nomor WA Pelanggan</p>
+    <input type="number" id="input-wa-pelanggan" class="w-full border-2 border-slate-200 p-3 rounded-xl font-bold text-center mb-6 outline-none focus:border-emerald-500" placeholder="Cth: 08123456789">
+    <div class="flex gap-3 justify-center">
+      <button onclick="document.getElementById('modal-wa').classList.add('hidden')" class="w-1/2 py-2.5 rounded-xl font-bold bg-slate-100 text-slate-600 hover:bg-slate-200">Batal</button>
+      <button onclick="eksekusiKirimWA()" class="w-1/2 py-2.5 rounded-xl font-bold bg-emerald-500 text-white shadow-md hover:bg-emerald-600">Kirim Struk</button>
+    </div>
+  </div>
+</div>
+
+<div id="modal-qris-bayar" class="fixed inset-0 bg-black/80 z-[110] hidden items-center justify-center p-5">
+  <div class="bg-white p-6 rounded-2xl w-full max-w-sm text-center">
+     <h3 class="font-black text-xl mb-2">Scan QRIS Pembayaran</h3>
+     <p class="text-sm text-slate-500 mb-4">Total Tagihan: <span id="qris-total-bayar" class="font-bold text-blue-600 text-lg"></span></p>
+     <img id="qris-tampil-bayar" src="" class="mx-auto max-h-64 object-contain mb-4 border-2 border-dashed border-emerald-300 p-2 rounded-xl hidden">
+     <p id="qris-belum-diatur" class="text-red-500 font-bold mb-4 hidden">Gambar QRIS belum di-upload di menu Pengaturan!</p>
+     <button onclick="document.getElementById('modal-qris-bayar').style.display='none'" class="w-full bg-slate-800 text-white font-bold py-3 rounded-xl shadow-md">Tutup</button>
+  </div>
+</div>
+
+<div id="modal-input-master" class="fixed inset-0 bg-black/60 z-[9999] hidden items-center justify-center p-4">
+  <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center">
+    <div class="text-4xl mb-4 text-blue-500"><i class="fa-solid fa-layer-group"></i></div>
+    <h3 id="modal-input-title" class="font-black text-xl mb-2 text-slate-800">Tambah Data</h3>
+    <input type="text" id="input-master-value" class="w-full border-2 border-slate-200 p-3 rounded-xl font-bold text-center mb-6 outline-none focus:border-blue-500" placeholder="Ketik di sini...">
+    <input type="hidden" id="input-master-target"><input type="hidden" id="input-master-name">
+    <div class="flex gap-3 justify-center">
+      <button onclick="document.getElementById('modal-input-master').classList.replace('flex','hidden')" class="w-1/2 py-2.5 rounded-xl font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 transition">Batal</button>
+      <button onclick="simpanMasterLokal()" class="w-1/2 py-2.5 rounded-xl font-bold bg-blue-600 text-white shadow-md hover:bg-blue-700 transition">Simpan Data</button>
+    </div>
+  </div>
+</div>
+
+<div id="modal-detail-inv" class="fixed inset-0 bg-black/60 z-[110] hidden items-center justify-center p-5">
+   <div class="bg-white p-6 rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[80vh]">
+     <div class="flex justify-between items-center mb-4 border-b pb-2">
+       <h3 class="font-black text-lg text-blue-700" id="detail-inv-title">Detail Invoice</h3>
+       <button onclick="document.getElementById('modal-detail-inv').classList.replace('flex','hidden')" class="text-red-500 hover:text-red-700"><i class="fa-solid fa-xmark text-xl"></i></button>
+     </div>
+     <div class="flex-1 overflow-y-auto mb-4" id="detail-inv-body"></div>
+   </div>
+</div>
+
+<!-- MODAL UPDATE PWA SPESIAL -->
+<div id="modal-update-pwa" class="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[99999] hidden items-center justify-center p-4 opacity-0 transition-opacity duration-300">
+  <div class="bg-white rounded-3xl shadow-2xl max-w-sm w-full p-8 text-center relative overflow-hidden transform scale-95 transition-transform duration-300">
+    <div class="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-indigo-500 via-purple-500 to-rose-500"></div>
+    <div class="w-20 h-20 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center text-4xl mx-auto mb-5 shadow-inner">
+      <i class="fa-solid fa-cloud-arrow-down animate-bounce"></i>
+    </div>
+    <h3 class="font-black text-2xl mb-2 text-gray-800 tracking-tight">Update Tersedia!</h3>
+    <p class="text-sm text-gray-500 mb-6 font-medium">Versi terbaru aplikasi BLANGKON sudah siap. Update sekarang untuk mendapatkan fitur terbaru dan perbaikan sistem tanpa perlu hapus cache manual.</p>
+    <button id="btn-eksekusi-update" onclick="applyUpdate()" class="w-full bg-slate-900 hover:bg-black text-white font-black py-4 rounded-xl shadow-lg transition transform active:scale-95 flex items-center justify-center gap-2 text-lg">
+      <i class="fa-solid fa-arrows-rotate"></i> UPDATE SEKARANG
+    </button>
+  </div>
+</div>
+
+<div id="login-screen" class="flex min-h-screen items-center justify-center p-5 relative">
+  <div class="bg-white p-8 rounded-3xl shadow-xl w-full max-w-md border border-slate-100 relative z-10">
+    <div id="login-loader" class="absolute inset-0 bg-white/90 z-20 hidden flex-col items-center justify-center rounded-3xl">
+      <div class="loader mb-3"></div><p class="font-bold text-slate-500 text-sm animate-pulse">Menghubungkan ke API Server...</p>
+    </div>
+    <img src="logo1.png" alt="Logo BLANGKON" class="w-24 h-24 mx-auto mb-4 object-contain drop-shadow-md">
+    <h1 class="text-2xl font-black text-center text-slate-800 tracking-tight">BLANGKON ERP</h1>
+    <p class="text-xs text-center text-slate-400 mb-6 font-bold tracking-widest">SISTEM MANAJEMEN CLOUD</p>
+    
+    <div id="login-error-msg" class="hidden bg-red-50 text-red-500 text-xs font-bold p-3 rounded-xl mb-4 text-center border border-red-100"></div>
+    <div class="space-y-4" onkeydown="if(event.key === 'Enter') eksekusiLogin()">
+      <div class="relative"><i class="fa-solid fa-user absolute left-4 top-4 text-slate-400"></i><input type="text" id="in-user" class="w-full border border-slate-300 p-3.5 pl-12 rounded-xl focus:border-blue-600 outline-none bg-slate-50 font-bold" placeholder="Username" autocomplete="off"></div>
+      <div class="relative"><i class="fa-solid fa-lock absolute left-4 top-4 text-slate-400"></i><input type="password" id="in-pass" class="w-full border border-slate-300 p-3.5 pl-12 rounded-xl focus:border-blue-600 outline-none bg-slate-50 font-bold" placeholder="Password"></div>
+      <button type="button" onclick="eksekusiLogin()" id="btn-login" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-black text-base rounded-xl py-4 mt-2 shadow-lg transition transform hover:scale-[1.02]">LOGIN SISTEM</button>
+      <div id="btn-install-app" class="hidden w-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-sm rounded-xl py-3 mt-4 shadow-inner transition border border-slate-200 cursor-pointer text-center">
+        <i class="fa-solid fa-download mr-2 text-blue-600"></i> Install Aplikasi ke HP
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="app-screen" class="hidden h-screen w-full">
+  <aside class="hidden md:flex flex-col w-64 bg-slate-900 text-slate-400 shadow-2xl z-20 transition-all">
+    <div class="p-6 font-black text-xl flex items-center gap-3 text-white border-b border-white/5"><img src="logo1.png" alt="Logo" class="w-8 h-8 object-contain">BLANGKON</div>
+    <nav class="flex-1 p-4 overflow-y-auto text-sm font-bold space-y-1" id="desktop-nav">
+      <div class="menu-sidebar active p-3 flex gap-3 items-center" onclick="navigasi('dashboard')"><i class="fa-solid fa-chart-pie w-5 text-center"></i> Dashboard</div>
+      <div class="menu-sidebar p-3 flex gap-3 items-center" onclick="navigasi('pos')"><i class="fa-solid fa-cash-register w-5 text-center"></i> POS Kasir</div>
+      <div class="menu-sidebar p-3 flex gap-3 items-center" onclick="navigasi('penjualan')"><i class="fa-solid fa-bag-shopping w-5 text-center text-emerald-300"></i> Penjualan / SO</div>
+      <div class="menu-sidebar p-3 flex gap-3 items-center" onclick="navigasi('produk')"><i class="fa-solid fa-box-open w-5 text-center text-orange-300"></i> Produk Master</div>
+      <div class="menu-sidebar p-3 flex gap-3 items-center" onclick="navigasi('stok')"><i class="fa-solid fa-cubes-stacked w-5 text-center"></i> Kelola Stok</div>
+      <div class="menu-sidebar admin-only p-3 flex gap-3 items-center" onclick="navigasi('pelanggan')"><i class="fa-solid fa-users w-5 text-center text-cyan-300"></i> Pelanggan</div>
+      <div class="menu-sidebar admin-only p-3 flex gap-3 items-center" onclick="navigasi('supplier')"><i class="fa-solid fa-truck-fast w-5 text-center text-yellow-300"></i> Supplier</div>
+      <div class="menu-sidebar p-3 flex gap-3 items-center" onclick="navigasi('pembelian')"><i class="fa-solid fa-file-invoice w-5 text-center"></i> Pembelian (PO)</div>
+      <div class="menu-sidebar admin-only p-3 flex gap-3 items-center" onclick="navigasi('laporan')"><i class="fa-solid fa-chart-line w-5 text-center text-purple-300"></i> Laporan Bisnis</div>
+      <div class="menu-sidebar admin-only p-3 flex gap-3 items-center" onclick="navigasi('keuangan')"><i class="fa-solid fa-wallet w-5 text-center text-blue-300"></i> Keuangan</div>
+      <div class="menu-sidebar admin-only p-3 flex gap-3 items-center border-t border-white/5 pt-4 mt-2" onclick="navigasi('datamaster')"><i class="fa-solid fa-database w-5 text-center"></i> Data Master</div>
+      <div class="menu-sidebar admin-only p-3 flex gap-3 items-center" onclick="navigasi('pengaturan')"><i class="fa-solid fa-sliders w-5 text-center text-slate-300"></i> Pengaturan</div>
+      <div class="menu-sidebar p-3 flex gap-3 items-center" onclick="navigasi('akun')"><i class="fa-solid fa-user-shield w-5 text-center text-pink-300"></i> Profil Akun</div>
+    </nav>
+    <div class="p-6 border-t border-white/5 relative">
+      <p id="ui-role" class="text-[10px] font-black text-blue-500 uppercase tracking-widest">ROLE</p>
+      <p id="ui-user" class="font-bold text-sm text-white truncate w-40">Username</p>
+      <div onclick="bukaModalConfirm('Logout', 'Yakin ingin keluar?', 'logout', prosesLogout)" class="absolute right-6 bottom-6 text-slate-500 hover:text-red-500 cursor-pointer transition"><i class="fa-solid fa-power-off text-lg"></i></div>
+    </div>
+  </aside>
+
+  <main class="flex-1 flex flex-col h-screen overflow-y-auto bg-slate-50 relative pb-20 md:pb-0">
+    <header class="bg-white shadow-sm px-4 md:px-6 py-4 sticky top-0 z-30 flex justify-between items-center border-b border-slate-100">
+      <div class="flex items-center gap-4">
+        <button onclick="toggleMobileMenu()" class="md:hidden text-slate-500 hover:text-blue-600 text-xl transition"><i class="fa-solid fa-bars"></i></button>
+        <h2 id="ui-title" class="text-lg md:text-xl font-black text-slate-800 tracking-tight">Dashboard</h2>
+      </div>
+      <div class="flex items-center gap-2 md:gap-3">
+        <button id="btn-bt-connect" onclick="connectBluetoothNative()" class="text-[10px] md:text-xs font-bold text-white bg-indigo-500 px-3 py-1.5 rounded-md shadow hover:bg-indigo-600 transition flex items-center gap-1.5"><i class="fa-brands fa-bluetooth"></i> <span id="bt-status-text" class="hidden sm:inline">Connect BT</span></button>
+        <button id="sync-status" onclick="syncDataLiveBackground()" class="text-[10px] md:text-xs font-bold text-slate-500 bg-slate-200 hover:bg-slate-300 transition px-3 py-1.5 rounded-md flex items-center gap-1.5 cursor-pointer"><i class="fa-solid fa-rotate"></i> <span class="hidden sm:inline">Sync Manual</span></button>
+      </div>
+    </header>
+    <div id="inline-global-notif" class="hidden mx-6 mt-4 p-3 rounded-xl text-sm font-bold flex items-center justify-between shadow-sm"><div class="flex items-center gap-2"><i id="ign-icon"></i> <span id="ign-text"></span></div><button onclick="document.getElementById('inline-global-notif').classList.add('hidden')"><i class="fa-solid fa-xmark"></i></button></div>
+    <div id="main-content-area" class="p-4 md:p-6 w-full max-w-7xl mx-auto flex-1 flex flex-col relative"></div>
+  </main>
+
+  <div class="md:hidden fixed bottom-0 w-full bg-white border-t border-slate-200 flex justify-around p-3 pb-5 shadow-[0_-10px_20px_-5px_rgba(0,0,0,0.05)] z-20">
+    <div class="text-center text-slate-400 hover:text-blue-600 cursor-pointer" onclick="navigasi('dashboard')"><i class="fa-solid fa-chart-pie text-xl mb-1 block"></i><span class="text-[10px] font-bold">Beranda</span></div>
+    <div class="text-center text-slate-400 hover:text-blue-600 cursor-pointer" onclick="navigasi('pos')"><i class="fa-solid fa-cash-register text-xl mb-1 block"></i><span class="text-[10px] font-bold">POS</span></div>
+    <div class="text-center text-slate-400 hover:text-blue-600 cursor-pointer" onclick="navigasi('stok')"><i class="fa-solid fa-cubes-stacked text-xl mb-1 block"></i><span class="text-[10px] font-bold">Stok</span></div>
+    <div class="text-center text-slate-400 hover:text-blue-600 cursor-pointer admin-only" onclick="navigasi('penjualan')"><i class="fa-solid fa-bag-shopping text-xl mb-1 block"></i><span class="text-[10px] font-bold">Transaksi</span></div>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+
+</body>
+</html>
