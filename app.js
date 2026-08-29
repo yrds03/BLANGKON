@@ -1475,20 +1475,31 @@ function viewStok() {
                     </div>
                 </div>
             </div> 
-            <div class="flex-1 overflow-auto rounded-xl border border-slate-200 bg-white">
+            <div class="flex-1 overflow-auto rounded-xl border border-slate-200 bg-white relative">
                 <table class="w-full text-left min-w-[800px]">
                     <thead class="bg-slate-100 text-[10px] text-slate-500 font-black uppercase tracking-wider sticky top-0 z-10 shadow-sm">
                         <tr><th class="p-4 pl-6">ID Produk</th><th class="p-4">Nama Produk & Lokasi</th><th class="p-4 text-center">Stok Sistem</th><th class="p-4 text-center">Stok Fisik Aktual</th><th class="p-4 text-center">Selisih</th><th class="p-4 pr-6">Catatan</th></tr>
                     </thead>
                     <tbody id="tabel-opname-body" class="divide-y divide-slate-100 text-sm font-bold text-slate-700"></tbody>
+                    
+                    <!-- TOTALAN QTY STOK OPNAME -->
+                    <tfoot class="bg-slate-50 border-t-2 border-slate-200 sticky bottom-0 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-10">
+                        <tr>
+                            <td colspan="2" class="p-4 pl-6 text-right font-black text-slate-600 uppercase tracking-widest text-xs">Total QTY Keseluruhan:</td>
+                            <td class="p-4 text-center font-black text-blue-600 text-lg" id="op-total-sys">0</td>
+                            <td class="p-4 text-center font-black text-orange-600 text-lg" id="op-total-fsk">0</td>
+                            <td class="p-4 text-center font-black text-lg" id="op-total-selisih">0</td>
+                            <td class="p-4 pr-6"></td>
+                        </tr>
+                    </tfoot>
                 </table>
             </div> 
         </div> 
-        <!-- (BAGIAN LACAK & TRANSFER CABANG BIARKAN SEPERTI ASLINYA) -->
         <div id="stok-lacak" class="hidden flex-1"><div class="bg-slate-50 p-6 rounded-2xl shadow-sm border border-slate-200 max-w-lg mx-auto mt-6"><h3 class="font-bold text-center mb-4 text-lg">Pelacakan Posisi IMEI / Barcode</h3><div class="flex gap-2 mb-4"><input type="text" id="input-lacak-imei" placeholder="Scan/Ketik Barcode IMEI HP..." class="w-full border border-slate-300 p-3.5 rounded-xl font-bold bg-white focus:border-blue-500 outline-none"><button onclick="bukaKamera('lacak')" class="bg-blue-600 hover:bg-blue-700 text-white px-5 rounded-xl shadow-md transition" title="Scan Kamera"><i class="fa-solid fa-camera text-xl"></i></button></div><button onclick="lacakImeiBarang()" class="w-full bg-blue-600 text-white font-bold py-3.5 rounded-xl shadow-md hover:bg-blue-700 transition"><i class="fa-solid fa-search mr-2"></i>Lacak Posisi Sekarang</button></div><div id="hasil-lacak-imei" class="mt-6 hidden max-w-2xl mx-auto space-y-3"></div></div> 
         <div id="stok-transfer" class="hidden flex-1"><div class="bg-slate-50 p-6 rounded-2xl shadow-sm border border-slate-200 max-w-2xl mx-auto mt-6"><h3 class="font-bold mb-4 text-lg border-b pb-2">Pindahkan Stok ke Cabang Lain</h3><div class="grid grid-cols-2 gap-4 mb-4"><div><label class="text-xs font-bold text-slate-500">Dari Gudang</label><input type="text" value="${state.cabang}" class="w-full border border-slate-200 p-3 rounded-xl bg-slate-100 font-bold text-slate-500" disabled></div><div><label class="text-xs font-bold text-slate-500">Tujuan Cabang</label><select id="tf-tujuan" class="w-full border border-slate-200 p-3 rounded-xl bg-white font-bold outline-none focus:border-blue-500">${opsiCabangTFHtml}</select></div></div><div class="flex gap-2 mb-4"><div class="relative flex-1"><i class="fa-solid fa-barcode absolute left-4 top-3.5 text-slate-400"></i><input type="text" id="tf-produk" placeholder="Scan Barcode / ID Produk..." class="w-full border border-slate-200 p-3 pl-11 rounded-xl font-bold bg-white outline-none focus:border-blue-500"></div><button onclick="bukaKamera('tf')" class="bg-blue-600 text-white w-12 rounded-xl shadow hover:bg-blue-700 transition"><i class="fa-solid fa-camera"></i></button></div><div class="flex gap-4"><input type="number" id="tf-qty" placeholder="Qty Dikirim" class="w-1/3 border border-slate-200 p-3 rounded-xl font-bold bg-white outline-none focus:border-blue-500"><button id="btn-tf" class="w-2/3 bg-slate-800 text-white font-bold py-3 rounded-xl shadow-md hover:bg-slate-900 transition" onclick="prosesTransferGudang()">Proses Pindah Gudang</button></div></div></div> 
     </div> `; 
 }
+
 function filterStokUI() { 
     let filterEl = document.getElementById('stok-filter-cabang');
     let filterCabang = filterEl ? filterEl.value : 'SEMUA';
@@ -1570,7 +1581,10 @@ function filterStokUI() {
     let elS = document.getElementById('tabel-pantau-body'); if(elS) elS.innerHTML = hS || `<tr><td colspan="3" class="p-8 text-center text-slate-400 font-bold">Tidak ada data untuk cabang ini.</td></tr>`; 
     let elM = document.getElementById('tabel-mutasi-body'); if(elM) elM.innerHTML = hM || `<tr><td colspan="4" class="p-8 text-center text-slate-400 font-bold">Belum ada mutasi di cabang ini.</td></tr>`; 
     let elO = document.getElementById('tabel-opname-body'); if(elO) elO.innerHTML = hO || `<tr><td colspan="6" class="p-8 text-center text-slate-400 font-bold">Pilih kategori atau tidak ada data yang cocok.</td></tr>`; 
+    
+    hitungTotalOpname(); // Kalkulasi grand total setiap filter diubah
 }
+
 function hitungSelisih(id) { 
     let sys = parseFloat(document.getElementById('op-sys-'+id).innerText) || 0; 
     let fsk = parseFloat(document.getElementById('op-fisik-'+id).value) || 0; 
@@ -1578,6 +1592,26 @@ function hitungSelisih(id) {
     let el = document.getElementById('op-selisih-'+id); 
     el.innerText = selisih > 0 ? '+'+selisih : selisih; 
     el.className = `p-4 text-center font-black text-lg ${selisih === 0 ? 'text-slate-400' : (selisih > 0 ? 'text-emerald-500' : 'text-red-500')}`; 
+    hitungTotalOpname(); // Kalkulasi real-time saat ngetik
+}
+
+// FUNGSI BARU: MENGHITUNG TOTAL QTY
+function hitungTotalOpname() {
+    let tSys = 0; let tFsk = 0;
+    document.querySelectorAll('[id^="op-sys-"]').forEach(el => tSys += (parseFloat(el.innerText) || 0));
+    document.querySelectorAll('[id^="op-fisik-"]').forEach(el => tFsk += (parseFloat(el.value) || 0));
+    let tSel = tFsk - tSys;
+    
+    let eSys = document.getElementById('op-total-sys');
+    let eFsk = document.getElementById('op-total-fsk');
+    let eSel = document.getElementById('op-total-selisih');
+    
+    if(eSys) eSys.innerText = tSys;
+    if(eFsk) eFsk.innerText = tFsk;
+    if(eSel) {
+        eSel.innerText = tSel > 0 ? '+' + tSel : tSel;
+        eSel.className = `p-4 text-center font-black text-lg ${tSel === 0 ? 'text-slate-400' : (tSel > 0 ? 'text-emerald-500' : 'text-red-500')}`;
+    }
 }
 
 function switchStokTab(tab, el) { ['pantau','mutasi','lacak','opname', 'transfer'].forEach(t => document.getElementById('stok-'+t).classList.add('hidden')); el.parentElement.querySelectorAll('.tab-custom').forEach(e => e.classList.remove('active')); document.getElementById('stok-'+tab).classList.remove('hidden'); el.classList.add('active'); }
@@ -1670,7 +1704,7 @@ function cetakFormOpname() {
         <th width="10%">Stok Sistem</th><th width="15%">Stok Fisik Aktual</th><th width="20%">Keterangan / Catatan</th>
     </tr></thead><tbody>`;
     
-    let currentGroup = ""; let no = 1;
+    let currentGroup = ""; let no = 1; let totalSysPrint = 0;
     filteredProd.forEach((p) => {
         let kat = String(p.Kategori || "LAINNYA").toUpperCase();
         let brand = String(p.Nama_Produk || "TANPA NAMA").trim().split(' ')[0].toUpperCase();
@@ -1682,7 +1716,17 @@ function cetakFormOpname() {
         }
         let bc = p.Barcode ? `<br><span style="font-size:9px; font-family:monospace;">${p.Barcode}</span>` : '';
         html += `<tr><td style="text-align:center;">${no++}</td><td><b>${p.ID_Produk}</b>${bc}</td><td><b>${p.Nama_Produk}</b><br><span style="font-size:9px; color:#555;">Satuan: ${p.Satuan}</span></td><td style="text-align:center;">${p.Stok_Saat_Ini}</td><td></td><td></td></tr>`;
+        
+        // HITUNG TOTAL UNTUK CETAK KERTAS
+        totalSysPrint += parseFloat(p.Stok_Saat_Ini) || 0;
     });
+    
+    // TAMBAHKAN BARIS TOTAL DI KERTAS CETAK
+    html += `<tr>
+        <td colspan="3" style="text-align:right; font-weight:bold; padding:8px;">TOTAL QTY KESELURUHAN:</td>
+        <td style="text-align:center; font-weight:bold; font-size:14px;">${totalSysPrint}</td>
+        <td></td><td></td>
+    </tr>`;
     
     html += `</tbody></table>`;
     html += `<div class="ttd-container"><div class="ttd-box">Dihitung Oleh (Checker),<br><span class="line"></span><br>Staff Gudang</div><div class="ttd-box">Diinput Oleh (Admin),<br><span class="line"></span><br>${state.user}</div><div class="ttd-box">Mengetahui,<br><span class="line"></span><br>Kepala Toko / SPV</div></div></body></html>`;
@@ -1690,6 +1734,7 @@ function cetakFormOpname() {
     doc.open(); doc.write(html); doc.close(); 
     setTimeout(() => { iframe.contentWindow.focus(); iframe.contentWindow.print(); }, 800);
 }
+
 async function prosesTransferGudang() {
   let cbgTujuan = document.getElementById('tf-tujuan').value.trim(); let prdVal = document.getElementById('tf-produk').value.trim(); let qty = parseFloat(document.getElementById('tf-qty').value);
   if(!cbgTujuan || !prdVal || !qty || qty <= 0) return showInlineNotif('error', 'Cabang, Produk, dan Qty wajib diisi dengan benar!');
@@ -1704,6 +1749,7 @@ async function prosesTransferGudang() {
   else { showInlineNotif('error', res.msg); }
   btn.innerHTML = "Proses Pindah Gudang"; btn.disabled = false;
 }
+
 function lacakImeiBarang() { 
   let val = document.getElementById('input-lacak-imei').value.trim(); 
   if(!val) return showInlineNotif('error', "Masukkan Barcode / IMEI!"); 
