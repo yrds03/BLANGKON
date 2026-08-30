@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sanstech-erp-v10'; 
+const CACHE_NAME = 'sanstech-erp-v11'; 
 const urlsToCache = [
   './',
   './index.html',
