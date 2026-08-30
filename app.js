@@ -566,16 +566,36 @@ function renderChartDasbor() { let canvas = document.getElementById('dashChart')
 // ====================================================================
 function viewPOS() { 
     let savedMetode = JSON.parse(localStorage.getItem('sanstech_list-metode') || '["Tunai", "QRIS", "Transfer", "Kredit"]');
+    
+    // Pastikan 3 metode utama selalu ada
     if(!savedMetode.includes("Tunai")) savedMetode.unshift("Tunai"); 
+    if(!savedMetode.includes("QRIS")) savedMetode.push("QRIS"); 
+    if(!savedMetode.includes("Transfer")) savedMetode.push("Transfer"); 
     
     let btnMetodeHtml = "";
-    let optMetodeHtml = "";
+    let optMetode1Html = "";
+    let optMetode2Html = "";
+    
     savedMetode.forEach(m => {
         let safeId = m.replace(/[^a-zA-Z0-9]/g, '_'); 
         let activeClass = (state.metodeBayar === m) ? "border-blue-600 bg-blue-50 text-blue-700" : "border-slate-100 text-slate-500";
+        
+        // Tombol metode bayar tunggal (semua metode muncul)
         btnMetodeHtml += `<button onclick="pilihMetodePOS('${m}')" id="btn-m-${safeId}" class="btn-metode-pos py-2.5 rounded-lg border-2 ${activeClass} font-bold text-xs transition uppercase">${m}</button>`;
-        optMetodeHtml += `<option value="${m}">${m}</option>`;
+        
+        // FILTER DROPDOWN: Pisahkan Tunai/Transfer/QRIS ke Dropdown 1, sisanya (Leasing) ke Dropdown 2
+        let mUp = m.toUpperCase();
+        if(mUp === 'TUNAI' || mUp === 'TRANSFER' || mUp === 'QRIS') {
+            optMetode1Html += `<option value="${m}">${m}</option>`;
+        } else {
+            optMetode2Html += `<option value="${m}">${m}</option>`;
+        }
     });
+
+    // Jika belum ada data leasing sama sekali di Master
+    if(optMetode2Html === "") {
+        optMetode2Html = `<option value="">-- Tambah Leasing di Data Master --</option>`;
+    }
 
     state.isSplitPayment = false; // Reset Split State
 
@@ -597,7 +617,6 @@ function viewPOS() {
             <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col h-full relative"> 
                 <p class="text-[10px] font-bold text-slate-400 mb-1">PILIH PELANGGAN</p> 
                 
-                <!-- CUSTOM SEARCHABLE DROPDOWN PELANGGAN -->
                 <div class="relative mb-6">
                     <div id="pos-plg-overlay" class="hidden fixed inset-0 z-30" onclick="togglePlgDropdown()"></div>
                     <input type="hidden" id="pos-pelanggan" value="UMUM">
@@ -635,20 +654,21 @@ function viewPOS() {
                     ${btnMetodeHtml}
                 </div> 
 
+                <!-- TAMBAHAN: SPLIT PAYMENT LEASING/GABUNGAN -->
                 <label class="flex items-center gap-2 mb-4 cursor-pointer p-2.5 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 transition shadow-sm">
                     <input type="checkbox" id="pos-is-split" onchange="toggleSplitPayment(this.checked)" class="w-4 h-4 rounded text-blue-600">
                     <span class="text-xs font-black text-slate-700">Split Payment / Leasing (2 Metode)</span>
                 </label>
 
                 <div id="area-split-payment" class="hidden mb-4 p-3.5 bg-blue-50 border border-blue-200 rounded-xl space-y-3 shadow-inner">
-                    <p class="text-[10px] font-black text-blue-800 uppercase tracking-widest border-b border-blue-200 pb-1">Pembayaran 1 (Tunai/DP)</p>
+                    <p class="text-[10px] font-black text-blue-800 uppercase tracking-widest border-b border-blue-200 pb-1">Pembayaran 1 (Tunai / TF / QRIS)</p>
                     <div class="flex gap-2 items-center">
-                        <select id="split-m1" class="w-1/2 border border-blue-300 p-2.5 rounded-lg font-bold text-xs outline-none bg-white focus:border-blue-500">${optMetodeHtml}</select>
+                        <select id="split-m1" class="w-1/2 border border-blue-300 p-2.5 rounded-lg font-bold text-xs outline-none bg-white focus:border-blue-500">${optMetode1Html}</select>
                         <input type="text" inputmode="numeric" id="split-n1" onkeyup="formatInputRibuan(this); hitungSplitPOS()" placeholder="Rp Nominal 1" class="w-1/2 border border-blue-300 p-2.5 rounded-lg font-black text-xs text-right outline-none bg-white focus:border-blue-500">
                     </div>
-                    <p class="text-[10px] font-black text-blue-800 uppercase tracking-widest border-b border-blue-200 pb-1 mt-2">Pembayaran 2 (Leasing/Transfer)</p>
+                    <p class="text-[10px] font-black text-blue-800 uppercase tracking-widest border-b border-blue-200 pb-1 mt-2">Pembayaran 2 (Khusus Leasing)</p>
                     <div class="flex gap-2 items-center">
-                        <select id="split-m2" class="w-1/2 border border-blue-300 p-2.5 rounded-lg font-bold text-xs outline-none bg-white focus:border-blue-500">${optMetodeHtml}</select>
+                        <select id="split-m2" class="w-1/2 border border-blue-300 p-2.5 rounded-lg font-bold text-xs outline-none bg-white focus:border-blue-500">${optMetode2Html}</select>
                         <input type="text" inputmode="numeric" id="split-n2" onkeyup="formatInputRibuan(this); hitungSplitPOS()" placeholder="Rp Nominal 2" class="w-1/2 border border-blue-300 p-2.5 rounded-lg font-black text-xs text-right outline-none bg-white focus:border-blue-500">
                     </div>
                     <p id="split-err" class="hidden text-[10px] text-red-500 font-bold bg-red-100 p-1.5 rounded mt-2 text-center border border-red-200"></p>
