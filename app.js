@@ -565,12 +565,24 @@ function renderChartDasbor() { let canvas = document.getElementById('dashChart')
 // VIEW & FUNGSI: POS KASIR
 // ====================================================================
 function viewPOS() { 
-    let savedMetode = JSON.parse(localStorage.getItem('sanstech_list-metode') || '["Tunai", "QRIS", "Transfer", "Kredit"]');
+    let rawMetode = JSON.parse(localStorage.getItem('sanstech_list-metode') || '["Tunai", "QRIS", "Transfer", "Kredit"]');
     
-    // Pastikan 3 metode utama selalu ada
-    if(!savedMetode.includes("Tunai")) savedMetode.unshift("Tunai"); 
-    if(!savedMetode.includes("QRIS")) savedMetode.push("QRIS"); 
-    if(!savedMetode.includes("Transfer")) savedMetode.push("Transfer"); 
+    // --- FITUR BARU: FILTER ANTI DUPLIKAT (HURUF BESAR / KECIL) ---
+    let savedMetode = [];
+    let seenMetode = new Set();
+    rawMetode.forEach(m => {
+        let mUp = m.toUpperCase().trim();
+        if(!seenMetode.has(mUp)) {
+            seenMetode.add(mUp);
+            savedMetode.push(m);
+        }
+    });
+
+    // Pastikan 3 metode utama selalu ada (Cek dengan huruf besar semua agar tidak dobel)
+    let upperMetode = savedMetode.map(m => m.toUpperCase().trim());
+    if(!upperMetode.includes("TUNAI")) savedMetode.unshift("Tunai"); 
+    if(!upperMetode.includes("QRIS")) savedMetode.push("QRIS"); 
+    if(!upperMetode.includes("TRANSFER")) savedMetode.push("Transfer"); 
     
     let btnMetodeHtml = "";
     let optMetode1Html = "";
@@ -580,11 +592,10 @@ function viewPOS() {
         let safeId = m.replace(/[^a-zA-Z0-9]/g, '_'); 
         let activeClass = (state.metodeBayar === m) ? "border-blue-600 bg-blue-50 text-blue-700" : "border-slate-100 text-slate-500";
         
-        // Tombol metode bayar tunggal (semua metode muncul)
         btnMetodeHtml += `<button onclick="pilihMetodePOS('${m}')" id="btn-m-${safeId}" class="btn-metode-pos py-2.5 rounded-lg border-2 ${activeClass} font-bold text-xs transition uppercase">${m}</button>`;
         
-        // FILTER DROPDOWN: Pisahkan Tunai/Transfer/QRIS ke Dropdown 1, sisanya (Leasing) ke Dropdown 2
-        let mUp = m.toUpperCase();
+        // FILTER DROPDOWN: Pisahkan Tunai/Transfer/QRIS ke Dropdown 1, sisanya ke Dropdown 2
+        let mUp = m.toUpperCase().trim();
         if(mUp === 'TUNAI' || mUp === 'TRANSFER' || mUp === 'QRIS') {
             optMetode1Html += `<option value="${m}">${m}</option>`;
         } else {
@@ -592,7 +603,6 @@ function viewPOS() {
         }
     });
 
-    // Jika belum ada data leasing sama sekali di Master
     if(optMetode2Html === "") {
         optMetode2Html = `<option value="">-- Tambah Leasing di Data Master --</option>`;
     }
@@ -617,6 +627,7 @@ function viewPOS() {
             <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col h-full relative"> 
                 <p class="text-[10px] font-bold text-slate-400 mb-1">PILIH PELANGGAN</p> 
                 
+                <!-- CUSTOM SEARCHABLE DROPDOWN PELANGGAN -->
                 <div class="relative mb-6">
                     <div id="pos-plg-overlay" class="hidden fixed inset-0 z-30" onclick="togglePlgDropdown()"></div>
                     <input type="hidden" id="pos-pelanggan" value="UMUM">
