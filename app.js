@@ -695,12 +695,26 @@ function renderListCariPOS() {
             let disabled = (!state.isSO && parseFloat(p.Stok_Saat_Ini) <= 0) ? "opacity-50 pointer-events-none" : ""; 
             let stokTeks = (parseFloat(p.Stok_Saat_Ini) <= 0) ? '<span class="text-red-500">Habis</span>' : p.Stok_Saat_Ini; 
             let badgeCabang = String(state.role).toUpperCase().includes('SUPERADMIN') ? `<span class="text-[8px] bg-blue-100 text-blue-700 px-1 py-0.5 rounded ml-1">${p.Cabang||'Pusat'}</span>` : '';
-            html += `<div onclick="eksekusiTambahKeranjangDariManual('${p.ID_Produk}')" class="p-3 border rounded-xl flex justify-between items-center cursor-pointer hover:bg-blue-50 transition ${disabled}"><div class="flex-1"><p class="font-bold text-sm text-slate-800">${p.Nama_Produk} ${badgeCabang}</p><p class="text-[10px] font-bold text-slate-500">Stok: ${stokTeks}</p></div><div class="font-black text-blue-600">${formatRp(p.Harga_Jual)}</div></div>`; 
+            
+            // --- TAMBAHAN: INFO IMEI & WARNA SEBAGAI BADGE ---
+            let infoImei = p.Barcode && p.Barcode !== '-' ? `<span class="text-[9px] bg-slate-100 border border-slate-200 text-slate-600 px-1.5 py-0.5 rounded mr-1 inline-block mt-1 font-mono"><i class="fa-solid fa-barcode text-slate-400 mr-1"></i>${p.Barcode}</span>` : '';
+            let infoWarna = p.Warna && p.Warna !== '-' ? `<span class="text-[9px] bg-slate-100 border border-slate-200 text-slate-600 px-1.5 py-0.5 rounded mr-1 inline-block mt-1"><i class="fa-solid fa-palette text-slate-400 mr-1"></i>${p.Warna}</span>` : '';
+
+            html += `<div onclick="eksekusiTambahKeranjangDariManual('${p.ID_Produk}')" class="p-3 border rounded-xl flex justify-between items-center cursor-pointer hover:bg-blue-50 transition ${disabled}">
+                <div class="flex-1 pr-2">
+                    <p class="font-bold text-sm text-slate-800 leading-tight">${p.Nama_Produk} ${badgeCabang}</p>
+                    <div>${infoImei}${infoWarna}</div>
+                    <p class="text-[10px] font-bold text-slate-500 mt-1.5">Stok: ${stokTeks}</p>
+                </div>
+                <div class="font-black text-blue-600 whitespace-nowrap">${formatRp(p.Harga_Jual)}</div>
+            </div>`; 
         } 
     }); 
     document.getElementById('pos-hasil-cari').innerHTML = html; 
 }
+
 function eksekusiTambahKeranjangDariManual(id) { let prd = state.data.produk.find(p => String(p.ID_Produk) === id); if(prd) eksekusiTambahKeranjang(prd); document.getElementById('modal-cari-pos').classList.add('hidden'); }
+
 function eksekusiTambahKeranjang(prd) { 
     let idx = state.keranjangPOS.findIndex(x => String(x.id_produk) === String(prd.ID_Produk)); 
     if(idx > -1) { 
@@ -708,17 +722,52 @@ function eksekusiTambahKeranjang(prd) {
         state.keranjangPOS[idx].qty += 1; state.keranjangPOS[idx].total = state.keranjangPOS[idx].qty * state.keranjangPOS[idx].harga; 
     } else { 
         if(!state.isSO && parseFloat(prd.Stok_Saat_Ini) <= 0) { document.getElementById('pos-error').innerText = `Gagal! Stok ${prd.Nama_Produk} kosong / sudah terjual! Centang PO dulu.`; document.getElementById('pos-error').classList.remove('hidden'); return; } 
-        state.keranjangPOS.push({ id_produk: prd.ID_Produk, nama: prd.Nama_Produk, harga: parseFloat(prd.Harga_Jual), qty: 1, total: parseFloat(prd.Harga_Jual) }); 
+        
+        // --- TAMBAHAN: SIMPAN IMEI & WARNA KE KERANJANG ---
+        state.keranjangPOS.push({ 
+            id_produk: prd.ID_Produk, 
+            nama: prd.Nama_Produk, 
+            harga: parseFloat(prd.Harga_Jual), 
+            qty: 1, 
+            total: parseFloat(prd.Harga_Jual),
+            barcode: prd.Barcode,
+            warna: prd.Warna
+        }); 
     } 
     document.getElementById('pos-error').classList.add('hidden'); renderKeranjangPOS(); 
 }
+
 function ubahQtyPOS(idx, aksi) { if(aksi==='+') { let prd = state.data.produk.find(x => String(x.ID_Produk) === String(state.keranjangPOS[idx].id_produk)); if(!state.isSO && state.keranjangPOS[idx].qty >= parseFloat(prd.Stok_Saat_Ini)) return; state.keranjangPOS[idx].qty++; } else { state.keranjangPOS[idx].qty--; if(state.keranjangPOS[idx].qty <= 0) state.keranjangPOS.splice(idx, 1); } if(state.keranjangPOS[idx]) { state.keranjangPOS[idx].total = state.keranjangPOS[idx].qty * state.keranjangPOS[idx].harga; } renderKeranjangPOS(); }
 
 function renderKeranjangPOS() { 
   let list = document.getElementById('pos-cart-list'); let subtotal = 0; let jml = 0; let html = ""; 
   if(state.keranjangPOS.length === 0) { list.innerHTML = `<div class="text-center py-10 text-slate-300"><i class="fa-solid fa-cart-shopping text-5xl mb-3"></i><p class="font-bold text-sm">Keranjang Kosong</p></div>`; } 
   else { 
-    state.keranjangPOS.forEach((k, i) => { subtotal += k.total; jml += k.qty; html += `<div class="bg-white border rounded-xl p-3 flex justify-between items-center shadow-sm mb-2"><div class="flex-1"><p class="font-bold text-sm text-slate-700 truncate w-32 md:w-48">${k.nama}</p><p class="text-[10px] font-bold text-slate-400 mt-1">${formatRp(k.harga)}</p></div><div class="flex items-center gap-3"><div class="flex items-center bg-slate-100 rounded-lg overflow-hidden border border-slate-200"><button onclick="ubahQtyPOS(${i}, '-')" class="px-2 py-1 text-slate-500 hover:bg-slate-200 transition"><i class="fa-solid fa-minus text-[10px]"></i></button><span class="text-xs font-black w-6 text-center">${k.qty}</span><button onclick="ubahQtyPOS(${i}, '+')" class="px-2 py-1 text-slate-500 hover:bg-slate-200 transition"><i class="fa-solid fa-plus text-[10px]"></i></button></div><p class="font-black text-sm text-blue-600 w-20 text-right">${formatRp(k.total)}</p></div></div>`; }); 
+    state.keranjangPOS.forEach((k, i) => { 
+        subtotal += k.total; jml += k.qty; 
+        
+        // --- TAMBAHAN: MENAMPILKAN IMEI & WARNA DI KERANJANG ---
+        let detailK = "";
+        if(k.barcode && k.barcode !== '-') detailK += ` | ${k.barcode}`;
+        if(k.warna && k.warna !== '-') detailK += ` | ${k.warna}`;
+        let textDetail = detailK !== "" ? `<p class="text-[9px] font-mono text-slate-400 mt-0.5 truncate w-32 md:w-48">${detailK.substring(3)}</p>` : "";
+        
+        html += `<div class="bg-white border rounded-xl p-3 flex justify-between items-center shadow-sm mb-2">
+            <div class="flex-1">
+                <p class="font-bold text-sm text-slate-700 truncate w-32 md:w-48">${k.nama}</p>
+                ${textDetail}
+                <p class="text-[10px] font-bold text-slate-500 mt-1">${formatRp(k.harga)}</p>
+            </div>
+            <div class="flex items-center gap-3">
+                <div class="flex items-center bg-slate-100 rounded-lg overflow-hidden border border-slate-200">
+                    <button onclick="ubahQtyPOS(${i}, '-')" class="px-2 py-1 text-slate-500 hover:bg-slate-200 transition"><i class="fa-solid fa-minus text-[10px]"></i></button>
+                    <span class="text-xs font-black w-6 text-center">${k.qty}</span>
+                    <button onclick="ubahQtyPOS(${i}, '+')" class="px-2 py-1 text-slate-500 hover:bg-slate-200 transition"><i class="fa-solid fa-plus text-[10px]"></i></button>
+                </div>
+                <p class="font-black text-sm text-blue-600 w-20 text-right">${formatRp(k.total)}</p>
+            </div>
+        </div>`; 
+    }); 
     list.innerHTML = html; 
   } 
   
