@@ -569,11 +569,15 @@ function viewPOS() {
     if(!savedMetode.includes("Tunai")) savedMetode.unshift("Tunai"); 
     
     let btnMetodeHtml = "";
+    let optMetodeHtml = "";
     savedMetode.forEach(m => {
         let safeId = m.replace(/[^a-zA-Z0-9]/g, '_'); 
         let activeClass = (state.metodeBayar === m) ? "border-blue-600 bg-blue-50 text-blue-700" : "border-slate-100 text-slate-500";
         btnMetodeHtml += `<button onclick="pilihMetodePOS('${m}')" id="btn-m-${safeId}" class="btn-metode-pos py-2.5 rounded-lg border-2 ${activeClass} font-bold text-xs transition uppercase">${m}</button>`;
+        optMetodeHtml += `<option value="${m}">${m}</option>`;
     });
+
+    state.isSplitPayment = false; // Reset Split State
 
     return `
     <div class="flex flex-col lg:flex-row gap-4 h-full"> 
@@ -592,7 +596,26 @@ function viewPOS() {
         <div class="w-full lg:w-1/3 flex flex-col gap-4"> 
             <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col h-full relative"> 
                 <p class="text-[10px] font-bold text-slate-400 mb-1">PILIH PELANGGAN</p> 
-                <select id="pos-pelanggan" class="w-full border border-slate-200 p-3 rounded-xl mb-6 bg-slate-50 font-bold text-sm outline-none focus:border-blue-500"><option value="UMUM">Pelanggan UMUM</option></select> 
+                
+                <!-- CUSTOM SEARCHABLE DROPDOWN PELANGGAN -->
+                <div class="relative mb-6">
+                    <div id="pos-plg-overlay" class="hidden fixed inset-0 z-30" onclick="togglePlgDropdown()"></div>
+                    <input type="hidden" id="pos-pelanggan" value="UMUM">
+                    <div class="w-full border border-slate-200 p-3 rounded-xl bg-slate-50 font-bold text-sm flex justify-between items-center cursor-pointer hover:border-blue-400 transition relative z-40" onclick="togglePlgDropdown()">
+                        <span id="pos-plg-label" class="truncate text-slate-700">Pelanggan UMUM</span>
+                        <i class="fa-solid fa-chevron-down text-slate-400 text-xs"></i>
+                    </div>
+                    <div id="pos-plg-dropdown" class="hidden absolute top-full left-0 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-2xl z-50 flex-col overflow-hidden max-h-60">
+                        <div class="p-2 border-b border-slate-100 sticky top-0 bg-white">
+                            <div class="relative">
+                                <i class="fa-solid fa-search absolute left-3 top-2.5 text-slate-400 text-xs"></i>
+                                <input type="text" id="pos-plg-search" onkeyup="filterListPelanggan()" class="w-full bg-slate-50 border border-slate-200 p-2 pl-8 rounded-lg text-xs font-bold outline-none focus:border-blue-500" placeholder="Ketik cari nama..." autocomplete="off">
+                            </div>
+                        </div>
+                        <div id="pos-plg-list" class="overflow-y-auto flex-1 p-1 space-y-1"></div>
+                    </div>
+                </div>
+                
                 <div class="bg-slate-900 text-white p-5 rounded-xl text-center mb-6 shadow-inner">
                     <div class="flex justify-between text-xs text-slate-400 font-bold mb-1 border-b border-slate-700 pb-2 items-center"><span>Subtotal:</span><span id="pos-subtotal-rp">Rp 0</span></div>
                     <div class="flex justify-between items-center text-xs text-orange-400 font-bold mb-1 border-b border-slate-700 pb-2 pt-1"><span>Diskon (Rp):</span><input type="text" inputmode="numeric" id="pos-input-diskon" value="0" onkeyup="formatInputRibuan(this); renderKeranjangPOS()" onchange="formatInputRibuan(this); renderKeranjangPOS()" class="w-28 bg-slate-800 border border-slate-600 focus:border-orange-500 text-right p-1.5 rounded outline-none text-orange-400 font-black"></div>
@@ -601,17 +624,37 @@ function viewPOS() {
                     <p class="font-black text-3xl md:text-4xl tracking-tight text-emerald-400" id="pos-total-rp">Rp 0</p>
                 </div> 
 
-                <!-- CHECKBOX SO & INPUT DP -->
-                <label class="flex items-center gap-2 mb-3 cursor-pointer bg-orange-50 border border-orange-100 p-3 rounded-xl"><input type="checkbox" id="pos-is-so" onchange="toggleDP(this.checked)" class="w-4 h-4 rounded text-orange-600"><span class="text-xs font-bold text-orange-700">Tandai sbg Pre-Order (PO Customer)</span></label> 
+                <label class="flex items-center gap-2 mb-3 cursor-pointer bg-orange-50 border border-orange-100 p-3 rounded-xl"><input type="checkbox" id="pos-is-so" onchange="toggleDP(this.checked)" class="w-4 h-4 rounded text-orange-600"><span class="text-xs font-bold text-orange-700">Tandai sbg Pre-Order (PO)</span></label> 
                 <div id="area-dp" class="hidden mb-6 bg-orange-100 p-4 rounded-xl border border-orange-200">
                     <div class="flex justify-between items-center text-xs text-orange-800 font-bold mb-2"><span>Uang Muka / DP (Rp):</span><input type="text" inputmode="numeric" id="pos-input-dp" value="0" onkeyup="formatInputRibuan(this); renderKeranjangPOS()" onchange="formatInputRibuan(this); renderKeranjangPOS()" class="w-28 bg-white border border-orange-300 focus:border-orange-500 text-right p-1.5 rounded outline-none font-black text-orange-600"></div>
                     <div class="flex justify-between items-center text-xs text-red-600 font-black pt-2 border-t border-orange-200"><span>Sisa Tagihan:</span><span id="pos-sisa-rp">Rp 0</span></div>
                 </div>
 
                 <p class="text-[10px] font-bold text-slate-400 mb-2 uppercase">Metode Pembayaran</p> 
-                <div class="grid grid-cols-2 gap-2 mb-4">
+                <div id="area-metode-single" class="grid grid-cols-2 gap-2 mb-3">
                     ${btnMetodeHtml}
                 </div> 
+
+                <label class="flex items-center gap-2 mb-4 cursor-pointer p-2.5 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 transition shadow-sm">
+                    <input type="checkbox" id="pos-is-split" onchange="toggleSplitPayment(this.checked)" class="w-4 h-4 rounded text-blue-600">
+                    <span class="text-xs font-black text-slate-700">Split Payment / Leasing (2 Metode)</span>
+                </label>
+
+                <div id="area-split-payment" class="hidden mb-4 p-3.5 bg-blue-50 border border-blue-200 rounded-xl space-y-3 shadow-inner">
+                    <p class="text-[10px] font-black text-blue-800 uppercase tracking-widest border-b border-blue-200 pb-1">Pembayaran 1 (Tunai/DP)</p>
+                    <div class="flex gap-2 items-center">
+                        <select id="split-m1" class="w-1/2 border border-blue-300 p-2.5 rounded-lg font-bold text-xs outline-none bg-white focus:border-blue-500">${optMetodeHtml}</select>
+                        <input type="text" inputmode="numeric" id="split-n1" onkeyup="formatInputRibuan(this); hitungSplitPOS()" placeholder="Rp Nominal 1" class="w-1/2 border border-blue-300 p-2.5 rounded-lg font-black text-xs text-right outline-none bg-white focus:border-blue-500">
+                    </div>
+                    <p class="text-[10px] font-black text-blue-800 uppercase tracking-widest border-b border-blue-200 pb-1 mt-2">Pembayaran 2 (Leasing/Transfer)</p>
+                    <div class="flex gap-2 items-center">
+                        <select id="split-m2" class="w-1/2 border border-blue-300 p-2.5 rounded-lg font-bold text-xs outline-none bg-white focus:border-blue-500">${optMetodeHtml}</select>
+                        <input type="text" inputmode="numeric" id="split-n2" onkeyup="formatInputRibuan(this); hitungSplitPOS()" placeholder="Rp Nominal 2" class="w-1/2 border border-blue-300 p-2.5 rounded-lg font-black text-xs text-right outline-none bg-white focus:border-blue-500">
+                    </div>
+                    <p id="split-err" class="hidden text-[10px] text-red-500 font-bold bg-red-100 p-1.5 rounded mt-2 text-center border border-red-200"></p>
+                    <p id="split-info" class="hidden text-[10px] text-emerald-600 font-bold bg-emerald-100 p-1.5 rounded mt-2 text-center border border-emerald-200"></p>
+                </div>
+
                 <button id="btn-show-qris" onclick="tampilkanQrisBayar()" class="hidden w-full border-2 border-emerald-500 text-emerald-600 font-bold py-2.5 rounded-xl mb-3 hover:bg-emerald-50 transition"><i class="fa-solid fa-qrcode mr-2"></i> Tampilkan QRIS</button> 
                 
                 <div id="area-bayar" class="mt-auto"><button onclick="prosesCheckoutPOS()" id="btn-checkout" class="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-black py-4 rounded-xl shadow-lg transition text-base"><i class="fa-solid fa-check-circle mr-2"></i> BAYAR SEKARANG</button></div> 
@@ -627,15 +670,101 @@ function viewPOS() {
     <div id="modal-cari-pos" class="fixed inset-0 bg-black/60 z-50 hidden items-center justify-center p-4"><div class="bg-white rounded-2xl w-full max-w-lg h-[80vh] flex flex-col overflow-hidden shadow-2xl"><div class="p-4 border-b flex justify-between items-center"><h3 class="font-black text-lg">Pilih Produk</h3><button onclick="document.getElementById('modal-cari-pos').classList.add('hidden')" class="text-red-500"><i class="fa-solid fa-xmark text-xl"></i></button></div><div class="p-4"><input type="text" id="pos-cari-input" onkeyup="renderListCariPOS()" class="w-full border p-3 rounded-xl font-bold bg-slate-50 outline-none focus:border-blue-500" placeholder="Ketik nama produk..."></div><div id="pos-hasil-cari" class="flex-1 overflow-y-auto p-2 space-y-2"></div></div></div> `; 
 }
 
+function toggleSplitPayment(isChecked) {
+    state.isSplitPayment = isChecked;
+    if(isChecked) {
+        document.getElementById('area-metode-single').classList.add('hidden');
+        document.getElementById('area-split-payment').classList.remove('hidden');
+        document.getElementById('btn-show-qris').classList.add('hidden'); 
+        hitungSplitPOS();
+    } else {
+        document.getElementById('area-metode-single').classList.remove('hidden');
+        document.getElementById('area-split-payment').classList.add('hidden');
+        pilihMetodePOS(state.metodeBayar); 
+    }
+}
+
+function hitungSplitPOS() {
+    if(!state.isSplitPayment) return;
+    let totalAsli = state.isSO ? state.posTemp.dp : state.posTemp.total_akhir; 
+    let val1 = parseAngka(document.getElementById('split-n1').value);
+    let val2 = parseAngka(document.getElementById('split-n2').value);
+    
+    let err = document.getElementById('split-err');
+    let info = document.getElementById('split-info');
+    
+    let totalSplit = val1 + val2;
+
+    if (totalSplit < totalAsli && totalSplit > 0) {
+        err.innerText = "Nominal Split KURANG dari Tagihan (" + formatRp(totalAsli) + ")";
+        err.classList.remove('hidden');
+        info.classList.add('hidden');
+    } else if (totalSplit > totalAsli) {
+        let margin = totalSplit - totalAsli;
+        info.innerHTML = `<i class="fa-solid fa-circle-info"></i> Terdapat penambahan DP (Uang Muka): <br><b>+ ${formatRp(margin)}</b>`;
+        info.classList.remove('hidden');
+        err.classList.add('hidden');
+    } else {
+        err.classList.add('hidden');
+        info.classList.add('hidden');
+    }
+}
+
+// LOGIKA BARU UNTUK CUSTOM DROPDOWN PELANGGAN KASIR
 function setPilihanPelanggan() { 
-    if(!document.getElementById('pos-pelanggan')) return; 
-    let html = `<option value="UMUM">Pelanggan UMUM</option>`; 
-    if(state.data.pelanggan) { 
-        state.data.pelanggan.forEach(p => { 
-            html += `<option value="${p.ID_Pelanggan}">${p.Nama_Pelanggan}</option>`; 
+    if(!document.getElementById('pos-plg-list')) return; 
+    window.tempDataPelanggan = state.data.pelanggan || [];
+    renderListPelangganPOS(window.tempDataPelanggan);
+}
+
+function renderListPelangganPOS(data) {
+    let html = `<div onclick="pilihPelangganPOS('UMUM', 'Pelanggan UMUM')" class="p-2 hover:bg-blue-50 rounded-lg cursor-pointer transition flex justify-between items-center"><span class="font-bold text-sm text-slate-800">Pelanggan UMUM</span><span class="text-[9px] font-black text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">UMUM</span></div>`; 
+    if(data && data.length > 0) { 
+        data.forEach(p => { 
+            let nama = p.Nama_Pelanggan;
+            let id = p.ID_Pelanggan;
+            html += `<div onclick="pilihPelangganPOS('${id}', '${nama}')" class="p-2 hover:bg-blue-50 rounded-lg cursor-pointer transition flex justify-between items-center group">
+                <span class="font-bold text-sm text-slate-700 truncate pr-2 group-hover:text-blue-700">${nama}</span>
+                <span class="text-[9px] font-black text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 group-hover:text-blue-600 group-hover:border-blue-200 shrink-0">${id}</span>
+            </div>`; 
         }); 
     } 
-    document.getElementById('pos-pelanggan').innerHTML = html; 
+    document.getElementById('pos-plg-list').innerHTML = html; 
+}
+
+function togglePlgDropdown() {
+    let drop = document.getElementById('pos-plg-dropdown');
+    let overlay = document.getElementById('pos-plg-overlay');
+    let search = document.getElementById('pos-plg-search');
+    if(drop.classList.contains('hidden')) {
+        drop.classList.replace('hidden', 'flex');
+        overlay.classList.remove('hidden');
+        search.value = "";
+        renderListPelangganPOS(window.tempDataPelanggan);
+        setTimeout(() => search.focus(), 100);
+    } else {
+        drop.classList.replace('flex', 'hidden');
+        overlay.classList.add('hidden');
+    }
+}
+
+function filterListPelanggan() {
+    let val = document.getElementById('pos-plg-search').value.toLowerCase().trim();
+    if(!val) {
+        renderListPelangganPOS(window.tempDataPelanggan);
+        return;
+    }
+    let fData = window.tempDataPelanggan.filter(p => 
+        String(p.Nama_Pelanggan).toLowerCase().includes(val) || 
+        String(p.ID_Pelanggan).toLowerCase().includes(val)
+    );
+    renderListPelangganPOS(fData);
+}
+
+function pilihPelangganPOS(id, nama) {
+    document.getElementById('pos-pelanggan').value = id;
+    document.getElementById('pos-plg-label').innerText = nama;
+    togglePlgDropdown();
 }
 
 function pilihMetodePOS(m) { 
@@ -647,7 +776,7 @@ function pilihMetodePOS(m) {
     let sel = document.getElementById('btn-m-' + safeId); 
     if(sel) sel.className = "btn-metode-pos py-2.5 rounded-lg border-2 border-blue-600 bg-blue-50 text-blue-700 font-bold text-xs transition uppercase"; 
     
-    if (m.toUpperCase().includes('QRIS')) { 
+    if (m.toUpperCase().includes('QRIS') && !state.isSplitPayment) { 
         document.getElementById('btn-show-qris').classList.remove('hidden'); 
     } else { 
         document.getElementById('btn-show-qris').classList.add('hidden'); 
@@ -696,7 +825,6 @@ function renderListCariPOS() {
             let stokTeks = (parseFloat(p.Stok_Saat_Ini) <= 0) ? '<span class="text-red-500">Habis</span>' : p.Stok_Saat_Ini; 
             let badgeCabang = String(state.role).toUpperCase().includes('SUPERADMIN') ? `<span class="text-[8px] bg-blue-100 text-blue-700 px-1 py-0.5 rounded ml-1">${p.Cabang||'Pusat'}</span>` : '';
             
-            // --- TAMBAHAN: INFO IMEI & WARNA SEBAGAI BADGE ---
             let infoImei = p.Barcode && p.Barcode !== '-' ? `<span class="text-[9px] bg-slate-100 border border-slate-200 text-slate-600 px-1.5 py-0.5 rounded mr-1 inline-block mt-1 font-mono"><i class="fa-solid fa-barcode text-slate-400 mr-1"></i>${p.Barcode}</span>` : '';
             let infoWarna = p.Warna && p.Warna !== '-' ? `<span class="text-[9px] bg-slate-100 border border-slate-200 text-slate-600 px-1.5 py-0.5 rounded mr-1 inline-block mt-1"><i class="fa-solid fa-palette text-slate-400 mr-1"></i>${p.Warna}</span>` : '';
 
@@ -723,7 +851,6 @@ function eksekusiTambahKeranjang(prd) {
     } else { 
         if(!state.isSO && parseFloat(prd.Stok_Saat_Ini) <= 0) { document.getElementById('pos-error').innerText = `Gagal! Stok ${prd.Nama_Produk} kosong / sudah terjual! Centang PO dulu.`; document.getElementById('pos-error').classList.remove('hidden'); return; } 
         
-        // --- TAMBAHAN: SIMPAN IMEI & WARNA KE KERANJANG ---
         state.keranjangPOS.push({ 
             id_produk: prd.ID_Produk, 
             nama: prd.Nama_Produk, 
@@ -746,7 +873,6 @@ function renderKeranjangPOS() {
     state.keranjangPOS.forEach((k, i) => { 
         subtotal += k.total; jml += k.qty; 
         
-        // --- TAMBAHAN: MENAMPILKAN IMEI & WARNA DI KERANJANG ---
         let detailK = "";
         if(k.barcode && k.barcode !== '-') detailK += ` | ${k.barcode}`;
         if(k.warna && k.warna !== '-') detailK += ` | ${k.warna}`;
@@ -792,22 +918,29 @@ function renderKeranjangPOS() {
   document.getElementById('pos-jml-item').innerText = jml; 
   
   state.posTemp = { subtotal: subtotal, diskon: diskonNominal, pajak: pajakNominal, total_akhir: grandTotal, dp: dpNominal, sisa: sisaTagihan };
+  
+  hitungSplitPOS(); 
 }
 
 function tampilkanQrisBayar() { let tot = state.isSO ? state.posTemp.dp : state.posTemp.total_akhir; document.getElementById('qris-total-bayar').innerText = formatRp(tot); let qrisSaved = localStorage.getItem('sanstech_qris_image'); if(qrisSaved) { document.getElementById('qris-tampil-bayar').src = qrisSaved; document.getElementById('qris-tampil-bayar').classList.remove('hidden'); document.getElementById('qris-belum-diatur').classList.add('hidden'); } else { document.getElementById('qris-tampil-bayar').classList.add('hidden'); document.getElementById('qris-belum-diatur').classList.remove('hidden'); } document.getElementById('modal-qris-bayar').style.display='flex'; }
 
 function resetKasir() { 
-    state.keranjangPOS = []; 
     if(document.getElementById('pos-input-diskon')) document.getElementById('pos-input-diskon').value = "0";
     if(document.getElementById('pos-input-dp')) document.getElementById('pos-input-dp').value = "0";
     pilihMetodePOS("Tunai"); 
     if(document.getElementById('pos-is-so')) { document.getElementById('pos-is-so').checked = false; toggleDP(false); } 
+    if(document.getElementById('pos-is-split')) { document.getElementById('pos-is-split').checked = false; toggleSplitPayment(false); document.getElementById('split-n1').value = ""; document.getElementById('split-n2').value = ""; }
+    
+    state.keranjangPOS = []; 
     renderKeranjangPOS(); 
+    
+    if(document.getElementById('pos-pelanggan')) document.getElementById('pos-pelanggan').value = "UMUM";
+    if(document.getElementById('pos-plg-label')) document.getElementById('pos-plg-label').innerText = "Pelanggan UMUM";
+
     document.getElementById('area-setelah-bayar').classList.replace('flex','hidden'); 
     document.getElementById('area-bayar').classList.remove('hidden'); 
     document.getElementById('pos-barcode').focus(); 
 }
-
 function cetakUlangStruk() { if(lastInvoice) jalankanCetakStruk(lastInvoice, state.posTemp.total_akhir); }
 function bukaModalWA() { document.getElementById('input-wa-pelanggan').value = ""; document.getElementById('modal-wa').classList.replace('hidden','flex'); }
 
@@ -838,28 +971,59 @@ function salinTeksStruk() {
     let teks = `*${namaToko}*\n--------------------\n*INV:* ${lastInvoice}\n*TOTAL:* ${formatRp(lastTotal)}\n*METODE:* ${mtd}\n--------------------\nTerima kasih!`; 
     navigator.clipboard.writeText(teks).then(() => { showInlineNotif('success', 'Teks Struk Berhasil Disalin!'); }).catch(err => { showInlineNotif('error', 'Gagal Salin Teks!'); }); 
 }
+
 async function prosesCheckoutPOS() { 
     if(state.keranjangPOS.length === 0) return showInlineNotif('error', 'Keranjang kosong!'); 
-    let btn = document.getElementById('btn-checkout'); btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> MEMPROSES...'; btn.disabled = true; 
-    
     let plgId = document.getElementById('pos-pelanggan').value; 
     let totalNominal = state.posTemp.total_akhir; 
     
-    let payload = { keranjang: state.keranjangPOS, subtotal: state.posTemp.subtotal, diskon: state.posTemp.diskon, pajak: state.posTemp.pajak, total_akhir: totalNominal, metode: state.metodeBayar, id_pelanggan: plgId, kasir: state.user, is_so: state.isSO, dp: state.posTemp.dp, sisa: state.posTemp.sisa, cabang: state.cabang }; 
+    let finalMetode = state.metodeBayar;
+    let marginLeasing = 0;
+
+    if(state.isSplitPayment) {
+        let totalAsli = state.isSO ? state.posTemp.dp : state.posTemp.total_akhir;
+        let v1 = parseAngka(document.getElementById('split-n1').value);
+        let v2 = parseAngka(document.getElementById('split-n2').value);
+        let m1 = document.getElementById('split-m1').value;
+        let m2 = document.getElementById('split-m2').value;
+        
+        if(!m1 || !m2) return showInlineNotif('error', 'Pilih 2 metode bayar untuk Split Payment!');
+        let totalSplit = v1 + v2;
+        
+        if(totalSplit < totalAsli) return showInlineNotif('error', 'Nominal Split KURANG dari tagihan!');
+        if(v1 <= 0 || v2 <= 0) return showInlineNotif('error', 'Kedua nominal split harus diisi!');
+        
+        finalMetode = `${m1} (${formatRp(v1)}) & ${m2} (${formatRp(v2)})`;
+        
+        if(!state.isSO) {
+            marginLeasing = totalSplit - totalAsli;
+            totalNominal = totalSplit; // e.g. 2,200,000
+            state.posTemp.admin_leasing = marginLeasing;
+        } else {
+            state.posTemp.dp = totalSplit;
+            marginLeasing = totalSplit - totalAsli;
+            state.posTemp.admin_leasing = marginLeasing;
+        }
+    } else {
+        state.posTemp.admin_leasing = 0;
+    }
+
+    let btn = document.getElementById('btn-checkout'); btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> MEMPROSES...'; btn.disabled = true; 
+    
+    let payload = { keranjang: state.keranjangPOS, subtotal: state.posTemp.subtotal, diskon: state.posTemp.diskon, pajak: state.posTemp.pajak, total_akhir: totalNominal, metode: finalMetode, id_pelanggan: plgId, kasir: state.user, is_so: state.isSO, dp: state.posTemp.dp, sisa: state.posTemp.sisa, cabang: state.cabang }; 
     
     let res = await requestAPIWithAuth('prosesTransaksiPOS', payload);
     if(res.status) { 
         showInlineNotif('success', `Berhasil! Nota: ${res.invoice}`); lastInvoice = res.invoice; lastTotal = totalNominal; 
         
-        // --- SIMPAN MEMORI KHUSUS UNTUK PRINT SEBELUM DIKOSONGKAN ---
         window.lastPrintedItems = JSON.parse(JSON.stringify(state.keranjangPOS));
         window.lastPrintedTemp = JSON.parse(JSON.stringify(state.posTemp));
-        window.lastPrintedMetode = state.metodeBayar;
+        window.lastPrintedMetode = finalMetode;
         window.lastPrintedSO = state.isSO;
 
         let now = new Date(); let localTime = new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().substring(0, 19).replace('T', ' '); 
         
-        state.data.penjualan.push({ ID_Invoice: res.invoice, Waktu: localTime, ID_Pelanggan: plgId || "UMUM", Subtotal: state.posTemp.subtotal, Diskon: state.posTemp.diskon, Pajak: state.posTemp.pajak, Total_Akhir: totalNominal, Metode_Pembayaran: state.metodeBayar, Status: state.isSO ? 'SO/PESANAN' : 'LUNAS', Kasir: state.user, Cabang: state.cabang, DP: state.posTemp.dp, Sisa_Tagihan: state.posTemp.sisa }); 
+        state.data.penjualan.push({ ID_Invoice: res.invoice, Waktu: localTime, ID_Pelanggan: plgId || "UMUM", Subtotal: state.posTemp.subtotal, Diskon: state.posTemp.diskon, Pajak: state.posTemp.pajak, Total_Akhir: totalNominal, Metode_Pembayaran: finalMetode, Status: state.isSO ? 'SO/PESANAN' : 'LUNAS', Kasir: state.user, Cabang: state.cabang, DP: state.posTemp.dp, Sisa_Tagihan: state.posTemp.sisa }); 
         state.keranjangPOS.forEach(k => {
             state.data.penjualan_detail.push({
                 ID_Detail: "DET" + Math.floor(Math.random() * 100000), ID_Invoice: res.invoice, ID_Produk: k.id_produk,
@@ -868,21 +1032,17 @@ async function prosesCheckoutPOS() {
         });
         if(!state.isSO) { state.keranjangPOS.forEach(k => { let idx = state.data.produk.findIndex(p => p.ID_Produk === k.id_produk); if(idx > -1) state.data.produk[idx].Stok_Saat_Ini = parseFloat(state.data.produk[idx].Stok_Saat_Ini) - k.qty; }); } 
         
-        // --- KOSONGKAN KERANJANG LANGSUNG AGAR TIDAK BISA DOUBLE ---
+        // Kosongkan keranjang di background biar tidak didouble-click
         state.keranjangPOS = []; 
-        if(document.getElementById('pos-input-diskon')) document.getElementById('pos-input-diskon').value = "0";
-        if(document.getElementById('pos-input-dp')) document.getElementById('pos-input-dp').value = "0";
-        if(document.getElementById('pos-is-so')) { document.getElementById('pos-is-so').checked = false; toggleDP(false); }
-        renderKeranjangPOS(); // UI jadi Rp 0 semua!
-        pilihMetodePOS("Tunai");
+        renderKeranjangPOS();
 
         document.getElementById('area-bayar').classList.add('hidden'); document.getElementById('area-setelah-bayar').classList.replace('hidden','flex'); 
         btn.innerHTML = '<i class="fa-solid fa-check-circle mr-2"></i> BAYAR SEKARANG'; btn.disabled = false; 
         syncDataLiveBackground(); jalankanCetakStruk(res.invoice, totalNominal); 
     } else { showInlineNotif('error', res.msg); btn.innerHTML = '<i class="fa-solid fa-check-circle mr-2"></i> BAYAR SEKARANG'; btn.disabled = false; } 
 }
+
 async function jalankanCetakStruk(invoice, totAkhir) { 
-  // PANGGIL MEMORI PRINT, BUKAN DATA KERANJANG YANG SUDAH KOSONG
   let itemsPrint = window.lastPrintedItems || [];
   let tempPrint = window.lastPrintedTemp || {};
   let metodePrint = window.lastPrintedMetode || "Tunai";
@@ -899,6 +1059,9 @@ async function jalankanCetakStruk(invoice, totAkhir) {
   }
   let headerToko = localStorage.getItem('sanstech_struk_header') || ""; 
   let footerToko = localStorage.getItem('sanstech_struk_footer') || "Terima Kasih"; 
+  
+  let namaPelangganPrint = document.getElementById('pos-plg-label') ? document.getElementById('pos-plg-label').innerText : "UMUM";
+
   if (btCharacteristic) {
       let teks = `\n${namaToko}\n`;
       if (headerToko) teks += `${headerToko}\n`;
@@ -907,6 +1070,10 @@ async function jalankanCetakStruk(invoice, totAkhir) {
       teks += `--------------------------------\nSubtotal: ${formatRp(subtotalPrint)}\n`;
       if(diskonPrint > 0) teks += `Diskon: -${formatRp(diskonPrint)}\n`;
       if(pajakPrint > 0) teks += `Pajak PPN: +${formatRp(pajakPrint)}\n`;
+      
+      // DIUBAH MENJADI DP (UANG MUKA) UNTUK STRUK BLUETOOTH
+      if(tempPrint.admin_leasing > 0) teks += `DP (Uang Muka): +${formatRp(tempPrint.admin_leasing)}\n`;
+      
       teks += `TOTAL: ${formatRp(totAkhir)}\nBayar: ${metodePrint}\n`;
       if(soPrint) { teks += `DP Masuk: ${formatRp(tempPrint.dp)}\nSISA HUTANG: ${formatRp(tempPrint.sisa)}\n`; }
       teks += `--------------------------------\n${footerToko}\n\n\n\n`;
@@ -920,19 +1087,22 @@ async function jalankanCetakStruk(invoice, totAkhir) {
   let alamatToko = localStorage.getItem('sanstech_alamat_toko') || "Sistem ERP Distributor"; 
   let html = `<html><head><style>@page{margin:0;} body{font-family:monospace; color:black; font-size:11px; width:58mm; padding:2mm; margin:0;} .garis{border-bottom: 1px dashed black; margin: 4px 0;}</style></head><body>`; 
   html += `<div style="text-align:center;"><b style="font-size:14px;">${namaToko}</b><br>${alamatToko}`; if(headerToko) html += `<br>${headerToko}`; html += `<br><br><b>${title}</b><br><div class="garis"></div></div>`;
-  html += `<div>No: ${invoice}<br>Tgl: ${new Date().toLocaleString('id-ID')}<br>Ksr: ${state.user}<br>Plg: ${document.getElementById('pos-pelanggan').value}<br></div>`;
+  html += `<div>No: ${invoice}<br>Tgl: ${new Date().toLocaleString('id-ID')}<br>Ksr: ${state.user}<br>Plg: ${namaPelangganPrint}<br></div>`;
   html += `<div class="garis"></div><table style="width:100%; border-collapse:collapse;">`; 
   itemsPrint.forEach(i => { html += `<tr><td colspan="3" style="padding-top:2px;"><b>${i.nama}</b></td></tr><tr><td>${i.qty}x</td><td>${i.harga.toLocaleString('id-ID')}</td><td style="text-align:right;">${i.total.toLocaleString('id-ID')}</td></tr>`; }); 
   html += `</table><div class="garis"></div><div style="text-align:right;">Subtotal: ${formatRp(subtotalPrint)}<br>`;
   if(diskonPrint > 0) html += `Diskon: -${formatRp(diskonPrint)}<br>`;
   if(pajakPrint > 0) html += `Pajak PPN: +${formatRp(pajakPrint)}<br>`;
+  
+  // DIUBAH MENJADI DP (UANG MUKA) UNTUK CETAK KERTAS PRINTER
+  if(tempPrint.admin_leasing > 0) html += `DP (Uang Muka): +${formatRp(tempPrint.admin_leasing)}<br>`;
+  
   html += `<b>TOTAL: ${formatRp(totAkhir)}</b><br>Bayar: ${metodePrint}<br>`;
   if(soPrint) { html += `DP Masuk: ${formatRp(tempPrint.dp)}<br><b>SISA TAGIHAN: ${formatRp(tempPrint.sisa)}</b><br>`; }
   html += `</div><div class="garis"></div><div style="text-align:center; margin-top:10px;">${footerToko}</div></body></html>`; 
   doc.open(); doc.write(html); doc.close(); 
   setTimeout(() => { iframe.contentWindow.focus(); iframe.contentWindow.print(); }, 500); 
 }
-
 // ====================================================================
 // VIEW & FUNGSI: PENJUALAN / SO
 // ====================================================================
@@ -1028,14 +1198,24 @@ function lihatDetailInvoice(inv) {
     } 
     html += `</table>`; 
     if(trx) {
+        let sub = parseFloat(trx.Subtotal || trx.Total_Akhir);
+        let diskon = parseFloat(trx.Diskon || 0);
+        let pajak = parseFloat(trx.Pajak || 0);
+        let tot = parseFloat(trx.Total_Akhir);
+        let hitungDP = tot - (sub - diskon + pajak); // Deteksi jika ada kelebihan uang DP
+
         html += `<div class="bg-slate-100 p-3 rounded-lg mb-4 text-xs font-bold text-slate-600 text-right space-y-1">
-            <div class="flex justify-between"><span>Subtotal:</span><span>${formatRp(trx.Subtotal || trx.Total_Akhir)}</span></div>`;
-        if(parseFloat(trx.Diskon) > 0) html += `<div class="flex justify-between text-orange-500"><span>Diskon:</span><span>-${formatRp(trx.Diskon)}</span></div>`;
-        if(parseFloat(trx.Pajak) > 0) html += `<div class="flex justify-between text-red-500"><span>Pajak PPN:</span><span>+${formatRp(trx.Pajak)}</span></div>`;
+            <div class="flex justify-between"><span>Subtotal:</span><span>${formatRp(sub)}</span></div>`;
+        if(diskon > 0) html += `<div class="flex justify-between text-orange-500"><span>Diskon:</span><span>-${formatRp(diskon)}</span></div>`;
+        if(pajak > 0) html += `<div class="flex justify-between text-red-500"><span>Pajak PPN:</span><span>+${formatRp(pajak)}</span></div>`;
+        
+        // MUNCULKAN DP LEASING JIKA ADA
+        if(hitungDP > 0) html += `<div class="flex justify-between text-blue-600"><span>DP (Uang Muka):</span><span>+${formatRp(hitungDP)}</span></div>`;
+        
         html += `</div>`;
         html += `<div class="flex justify-between items-center bg-slate-900 text-white p-3 rounded-lg mb-4">
             <span class="text-xs font-bold uppercase tracking-wider">Total Akhir</span>
-            <span class="font-black text-emerald-400 text-xl">${formatRp(trx.Total_Akhir)}</span>
+            <span class="font-black text-emerald-400 text-xl">${formatRp(tot)}</span>
         </div>`;
     }
     html += `<button onclick="cetakInvoiceRiwayat('${inv}')" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-3 rounded-xl shadow-md transition flex items-center justify-center gap-2"><i class="fa-solid fa-print"></i> Cetak / Download PDF</button>`;
@@ -1043,6 +1223,7 @@ function lihatDetailInvoice(inv) {
     document.getElementById('detail-inv-body').innerHTML = html; 
     document.getElementById('modal-detail-inv').classList.replace('hidden','flex'); 
 }
+
 function cetakInvoiceRiwayat(inv) {
     let trx = state.data.penjualan.find(t => t.ID_Invoice === inv);
     if(!trx) return showInlineNotif('error', 'Data tidak ditemukan!');
@@ -1054,7 +1235,10 @@ function cetakInvoiceRiwayat(inv) {
     let dpPrint = parseFloat(trx.DP || 0);
     let sisaPrint = parseFloat(trx.Sisa_Tagihan || 0);
     
-    let namaToko = localStorage.getItem('sanstech_nama_toko') || "sanstech POS"; 
+    // Deteksi jika ada kelebihan uang DP Leasing di riwayat
+    let hitungDPLeasing = totAkhir - (subtotalPrint - diskonPrint + pajakPrint);
+    
+    let namaToko = localStorage.getItem('sanstech_nama_toko') || "BLANGKON ERP"; 
     let trxCabang = trx.Cabang || state.cabang; 
     if(trxCabang && String(trxCabang).toUpperCase() !== 'PUSAT') {
         if(namaToko.toUpperCase().includes('PUSAT')) { namaToko = namaToko.replace(/PUSAT/i, trxCabang.toUpperCase()); } 
@@ -1074,6 +1258,10 @@ function cetakInvoiceRiwayat(inv) {
         teks += `--------------------------------\nSubtotal: ${formatRp(subtotalPrint)}\n`;
         if(diskonPrint > 0) teks += `Diskon: -${formatRp(diskonPrint)}\n`;
         if(pajakPrint > 0) teks += `Pajak PPN: +${formatRp(pajakPrint)}\n`;
+        
+        // MUNCULKAN DP LEASING JIKA ADA (BLUETOOTH)
+        if(hitungDPLeasing > 0) teks += `DP (Uang Muka): +${formatRp(hitungDPLeasing)}\n`;
+        
         teks += `TOTAL: ${formatRp(totAkhir)}\nBayar: ${trx.Metode_Pembayaran}\n`;
         if(String(trx.Status).includes('SO')) { teks += `DP Masuk: ${formatRp(dpPrint)}\nSISA HUTANG: ${formatRp(sisaPrint)}\n`; }
         teks += `--------------------------------\n${footerToko}\n\n\n\n`;
@@ -1098,6 +1286,10 @@ function cetakInvoiceRiwayat(inv) {
     html += `</table><div class="garis"></div><div style="text-align:right;">Subtotal: ${formatRp(subtotalPrint)}<br>`;
     if(diskonPrint > 0) html += `Diskon: -${formatRp(diskonPrint)}<br>`;
     if(pajakPrint > 0) html += `Pajak PPN: +${formatRp(pajakPrint)}<br>`;
+    
+    // MUNCULKAN DP LEASING JIKA ADA (PRINT A4 / PDF)
+    if(hitungDPLeasing > 0) html += `DP (Uang Muka): +${formatRp(hitungDPLeasing)}<br>`;
+    
     html += `<b>TOTAL: ${formatRp(totAkhir)}</b><br>Metode: ${trx.Metode_Pembayaran}<br>`;
     if(String(trx.Status).includes('SO')) { html += `DP Masuk: ${formatRp(dpPrint)}<br><b>SISA TAGIHAN: ${formatRp(sisaPrint)}</b><br>`; }
     html += `</div><div class="garis"></div><div style="text-align:center; margin-top:10px;">${footerToko}</div></body></html>`; 
@@ -1952,8 +2144,15 @@ function lacakImeiBarang() {
 function viewPelanggan() { 
   return `
   <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col h-full relative">
-    <div class="flex justify-between items-center mb-6">
+    <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
       <h3 class="font-black text-lg text-slate-800">Database Pelanggan</h3>
+      
+      <!-- TAMBAHAN: SEARCH BAR PELANGGAN -->
+      <div class="relative w-full md:w-64">
+         <i class="fa-solid fa-search absolute left-3 top-3 text-slate-400"></i>
+         <input type="text" id="plg-search-db" onkeyup="filterPelangganUI()" class="w-full border border-slate-200 p-2 pl-9 rounded-lg text-sm font-bold outline-none focus:border-cyan-500 bg-white shadow-sm" placeholder="Cari Nama / ID...">
+      </div>
+
       <div class="flex items-center gap-2">
           <button onclick="exportDataCSV('pelanggan')" class="bg-emerald-50 text-emerald-600 hover:bg-emerald-500 hover:text-white font-bold p-2.5 rounded-xl shadow-sm transition" title="Export Excel"><i class="fa-solid fa-file-excel"></i></button>
           <button onclick="bukaFormRelasi('PELANGGAN')" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold px-5 py-2.5 rounded-xl shadow-md transition text-sm flex items-center"><i class="fa-solid fa-plus mr-2"></i>Pelanggan Baru</button>
@@ -2014,22 +2213,40 @@ function viewPelanggan() {
   </div>
   `; 
 }
+
 function filterPelangganUI() { 
+    let searchEl = document.getElementById('plg-search-db');
+    let searchVal = searchEl ? searchEl.value.toLowerCase().trim() : '';
     let html = ""; 
-    if(state.data.pelanggan) { 
-        state.data.pelanggan.forEach(p => { 
-            let grupBadge = p.Grup_Pelanggan ? p.Grup_Pelanggan : 'UMUM';
-            let grupClass = grupBadge === 'VIP' ? 'bg-purple-100 text-purple-600 border-purple-200' : (grupBadge === 'RESELLER' ? 'bg-blue-100 text-blue-600 border-blue-200' : (grupBadge === 'GROSIR' ? 'bg-orange-100 text-orange-600 border-orange-200' : 'bg-slate-100 text-slate-600 border-slate-200'));
-            html += `<tr class="hover:bg-slate-50 transition">
-                <td class="p-4 pl-6"><p class="font-bold text-slate-800">${p.Nama_Pelanggan}</p><div class="flex items-center gap-2 mt-1"><span class="text-[10px] font-mono text-cyan-600">${p.ID_Pelanggan}</span><span class="text-[9px] px-1.5 py-0.5 rounded font-black border uppercase ${grupClass}">${grupBadge}</span></div></td>
-                <td class="p-4 text-sm text-slate-600"><i class="fa-solid fa-phone text-slate-400 text-[10px] mr-1"></i> ${p.No_HP||'-'}<br><span class="text-[10px] text-slate-400"><i class="fa-solid fa-map-location-dot mr-1"></i> ${p.Alamat||'-'}</span></td>
-                <td class="p-4"><p class="text-emerald-600 font-black"><i class="fa-solid fa-star text-yellow-400 mr-1"></i> ${p.Poin_Member||0} Poin</p><p class="text-xs text-red-500 font-bold mt-1">Piutang: ${formatRp(p.Piutang||0)}</p></td>
-                <td class="p-4 pr-6 text-center"><button onclick="lihatRiwayatPelanggan('${p.ID_Pelanggan}')" class="bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-blue-600 hover:text-white transition shadow-sm border border-blue-100"><i class="fa-solid fa-clock-rotate-left mr-1"></i> Riwayat</button></td>
-            </tr>`; 
-        }); 
-    } 
+    
+    if(state.data.pelanggan && state.data.pelanggan.length > 0) { 
+        let filteredData = state.data.pelanggan.filter(p => {
+            if(!searchVal) return true;
+            return String(p.Nama_Pelanggan).toLowerCase().includes(searchVal) || 
+                   String(p.ID_Pelanggan).toLowerCase().includes(searchVal) ||
+                   String(p.No_HP).toLowerCase().includes(searchVal);
+        });
+
+        if(filteredData.length === 0) {
+            html = `<tr><td colspan="4" class="p-10 text-center text-slate-400 font-bold">Pelanggan tidak ditemukan.</td></tr>`;
+        } else {
+            filteredData.forEach(p => { 
+                let grupBadge = p.Grup_Pelanggan ? p.Grup_Pelanggan : 'UMUM';
+                let grupClass = grupBadge === 'VIP' ? 'bg-purple-100 text-purple-600 border-purple-200' : (grupBadge === 'RESELLER' ? 'bg-blue-100 text-blue-600 border-blue-200' : (grupBadge === 'GROSIR' ? 'bg-orange-100 text-orange-600 border-orange-200' : 'bg-slate-100 text-slate-600 border-slate-200'));
+                
+                html += `<tr class="hover:bg-slate-50 transition">
+                    <td class="p-4 pl-6"><p class="font-bold text-slate-800">${p.Nama_Pelanggan}</p><div class="flex items-center gap-2 mt-1"><span class="text-[10px] font-mono text-cyan-600 bg-cyan-50 px-1.5 py-0.5 rounded font-black border border-cyan-100">${p.ID_Pelanggan}</span><span class="text-[9px] px-1.5 py-0.5 rounded font-black border uppercase ${grupClass}">${grupBadge}</span></div></td>
+                    <td class="p-4 text-sm text-slate-600"><i class="fa-solid fa-phone text-slate-400 text-[10px] mr-1"></i> ${p.No_HP||'-'}<br><span class="text-[10px] text-slate-400"><i class="fa-solid fa-map-location-dot mr-1"></i> ${p.Alamat||'-'}</span></td>
+                    <td class="p-4"><p class="text-emerald-600 font-black"><i class="fa-solid fa-star text-yellow-400 mr-1"></i> ${p.Poin_Member||0} Poin</p><p class="text-xs text-red-500 font-bold mt-1">Piutang: ${formatRp(p.Piutang||0)}</p></td>
+                    <td class="p-4 pr-6 text-center"><button onclick="lihatRiwayatPelanggan('${p.ID_Pelanggan}')" class="bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-blue-600 hover:text-white transition shadow-sm border border-blue-100"><i class="fa-solid fa-clock-rotate-left mr-1"></i> Riwayat</button></td>
+                </tr>`; 
+            }); 
+        }
+    } else {
+        html = `<tr><td colspan="4" class="p-10 text-center text-slate-400 font-bold">Data Pelanggan Kosong</td></tr>`;
+    }
     let el = document.getElementById('tabel-pelanggan-ui'); 
-    if(el) el.innerHTML = html || `<tr><td colspan="4" class="p-10 text-center text-slate-400 font-bold">Data Pelanggan Kosong</td></tr>`; 
+    if(el) el.innerHTML = html; 
 }
 function bukaFormRelasi(tipe) { 
     let pref = tipe === 'PELANGGAN' ? 'plg' : 'sup'; 
