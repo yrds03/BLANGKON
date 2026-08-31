@@ -289,7 +289,41 @@ async function hapusMasterLokal(idList, itemValue, namaModul) {
     }
 }
 function bukaKamera(context) { kameraContext = context; document.getElementById('kamera-input').click(); }
-function prosesFotoBarcode(event) { let file = event.target.files[0]; if (!file) return; showInlineNotif('info', 'Membaca barcode...'); const html5QrCode = new Html5Qrcode("reader"); html5QrCode.scanFile(file, true).then(decodedText => { if (kameraContext === 'pos') { let prd = state.data.produk.find(p => String(p.Barcode) === decodedText || String(p.ID_Produk) === decodedText); if(prd) { eksekusiTambahKeranjang(prd); } else { showInlineNotif('error', 'Barcode tidak terdaftar!'); } } else if (kameraContext === 'produk') { document.getElementById('prd-bc').value = decodedText; showInlineNotif('success', 'Barcode disalin!'); } else if (kameraContext === 'lacak') { document.getElementById('input-lacak-imei').value = decodedText; lacakImeiBarang(); } else if (kameraContext === 'tf') { document.getElementById('tf-produk').value = decodedText; } event.target.value = ''; }).catch(err => { showInlineNotif('error', 'Gagal membaca Barcode!'); event.target.value = ''; }); }
+function prosesFotoBarcode(event) { 
+    let file = event.target.files[0]; 
+    if (!file) return; 
+    showInlineNotif('info', 'Membaca barcode...'); 
+    const html5QrCode = new Html5Qrcode("reader"); 
+    html5QrCode.scanFile(file, true).then(decodedText => { 
+        if (kameraContext === 'pos') { 
+            let prd = state.data.produk.find(p => String(p.Barcode) === decodedText || String(p.ID_Produk) === decodedText); 
+            if(prd) { 
+                eksekusiTambahKeranjang(prd); 
+            } else { 
+                showInlineNotif('error', 'Barcode tidak terdaftar!'); 
+            } 
+        } else if (kameraContext === 'produk') { 
+            document.getElementById('prd-bc').value = decodedText; showInlineNotif('success', 'Barcode disalin!'); 
+        } else if (kameraContext === 'lacak') { 
+            document.getElementById('input-lacak-imei').value = decodedText; lacakImeiBarang(); 
+        } else if (kameraContext === 'tf') { 
+            // --- UPDATE UNTUK KAMERA TRANSFER CABANG ---
+            let prd = state.data.produk.find(p => String(p.Barcode) === decodedText || String(p.ID_Produk) === decodedText);
+            if(prd) {
+                let sel = document.getElementById('tf-produk');
+                if(sel) {
+                    sel.value = prd.ID_Produk;
+                    showInlineNotif('success', 'Produk terpilih otomatis dari scan kamera!');
+                }
+            } else {
+                showInlineNotif('error', 'Produk tidak dikenali di cabang ini!');
+            }
+        } 
+        event.target.value = ''; 
+    }).catch(err => { 
+        showInlineNotif('error', 'Gagal membaca Barcode!'); event.target.value = ''; 
+    }); 
+}
 
 // ====================================================================
 // FUNGSI UTAMA (LOGIN, SYNC, NAV)
@@ -1403,6 +1437,10 @@ function viewProduk() {
   let listKat = JSON.parse(localStorage.getItem('sanstech_list-kat') || '["Umum"]');
   let opsiKatHtml = ""; listKat.forEach(k => opsiKatHtml += `<option value="${k}">${k}</option>`);
   
+  // --- TAMBAHAN: AMBIL DATA MASTER SATUAN ---
+  let listSatuan = JSON.parse(localStorage.getItem('sanstech_list-satuan') || '["Pcs", "Unit"]');
+  let opsiSatuanHtml = ""; listSatuan.forEach(s => opsiSatuanHtml += `<option value="${s}">${s}</option>`);
+  
   let opsiSupplierHtml = `<option value="-">-- Tanpa Supplier --</option>`;
   if(state.data.supplier) { 
       state.data.supplier.forEach(s => { 
@@ -1445,7 +1483,10 @@ function viewProduk() {
               <div class="md:col-span-2"><label class="text-[10px] font-bold text-slate-500 uppercase">Supplier Asal</label><select id="prd-sup" class="w-full border border-slate-200 p-2.5 rounded-lg font-bold outline-none focus:border-blue-500 bg-white">${opsiSupplierHtml}</select></div>
               <div class="md:col-span-2"><label class="text-[10px] font-bold text-slate-500 uppercase">Kategori</label><select id="prd-kat" class="w-full border border-slate-200 p-2.5 rounded-lg font-bold outline-none focus:border-blue-500 bg-white">${opsiKatHtml}</select></div>
               <div class="md:col-span-2"><label class="text-[10px] font-bold text-slate-500 uppercase">Warna (Opsional)</label><input type="text" id="prd-warna" class="w-full border border-slate-200 p-2.5 rounded-lg font-bold outline-none focus:border-blue-500 bg-white" placeholder="Contoh: Hitam"></div>
-              <div class="md:col-span-2"><label class="text-[10px] font-bold text-slate-500 uppercase">Satuan</label><input type="text" id="prd-sat" class="w-full border border-slate-200 p-2.5 rounded-lg font-bold outline-none focus:border-blue-500 bg-white"></div>
+              
+              <!-- DI SINI DIUBAH MENJADI DROPDOWN -->
+              <div class="md:col-span-2"><label class="text-[10px] font-bold text-slate-500 uppercase">Satuan</label><select id="prd-sat" class="w-full border border-slate-200 p-2.5 rounded-lg font-bold outline-none focus:border-blue-500 bg-white">${opsiSatuanHtml}</select></div>
+              
               <div class="admin-only md:col-span-2"><label class="text-[10px] font-bold text-slate-500 uppercase">Harga Beli (Modal)</label><input type="text" inputmode="numeric" onkeyup="formatInputRibuan(this)" id="prd-beli" class="w-full border border-slate-200 p-2.5 rounded-lg font-bold outline-none focus:border-blue-500 bg-white"></div>
               <div class="md:col-span-2"><label class="text-[10px] font-bold text-slate-500 uppercase">Harga Jual</label><input type="text" inputmode="numeric" onkeyup="formatInputRibuan(this)" id="prd-jual" class="w-full border border-slate-200 p-2.5 rounded-lg font-bold outline-none focus:border-blue-500 bg-white"></div>
               <div class="admin-only md:col-span-1"><label class="text-[10px] font-bold text-slate-500 uppercase">Stok Awal</label><input type="number" id="prd-stok" class="w-full border border-slate-200 p-2.5 rounded-lg font-bold outline-none focus:border-blue-500 bg-white"></div>
@@ -1533,7 +1574,6 @@ function bukaFormProduk(isEdit, idProduk) {
         wrap.classList.remove('hidden'); 
         document.getElementById('prd-inline-notif').classList.add('hidden'); 
 
-        // --- TAMBAHAN: FITUR AUTO-SCROLL KE ATAS ---
         setTimeout(() => {
             wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }, 100);
@@ -1547,6 +1587,11 @@ function bukaFormProduk(isEdit, idProduk) {
         let opsiKatHtml = ""; listKat.forEach(k => opsiKatHtml += `<option value="${k}">${k}</option>`);
         if(document.getElementById('prd-kat')) document.getElementById('prd-kat').innerHTML = opsiKatHtml;
         
+        // --- SINKRONISASI SATUAN SAAT BUKA FORM ---
+        let listSatuan = JSON.parse(localStorage.getItem('sanstech_list-satuan') || '["Pcs", "Unit"]');
+        let opsiSatuanHtml = ""; listSatuan.forEach(s => opsiSatuanHtml += `<option value="${s}">${s}</option>`);
+        if(document.getElementById('prd-sat')) document.getElementById('prd-sat').innerHTML = opsiSatuanHtml;
+
         let opsiSupplierHtml = `<option value="-">-- Tanpa Supplier --</option>`;
         if(state.data.supplier) { 
             state.data.supplier.forEach(s => { 
@@ -1557,7 +1602,11 @@ function bukaFormProduk(isEdit, idProduk) {
 
         if(!isEdit) { 
             document.getElementById('prd-title').innerText = "Tambah Produk Baru"; document.getElementById('prd-action').value = "CREATE"; 
-            ['prd-id','prd-bc','prd-nm','prd-warna','prd-beli','prd-jual','prd-stok','prd-sat'].forEach(id => { let el = document.getElementById(id); if(el) el.value = ""; }); 
+            
+            // Catatan: 'prd-sat' dihapus dari array clear agar dropdown tidak jadi blank, melainkan kembali ke default
+            ['prd-id','prd-bc','prd-nm','prd-warna','prd-beli','prd-jual','prd-stok'].forEach(id => { let el = document.getElementById(id); if(el) el.value = ""; }); 
+            if(listSatuan.length > 0 && document.getElementById('prd-sat')) document.getElementById('prd-sat').value = listSatuan[0];
+            
             document.getElementById('prd-minstok').value = "0"; 
             document.getElementById('prd-stok').readOnly = false; 
             if(document.getElementById('prd-cabang')) document.getElementById('prd-cabang').value = state.cabang || "Pusat"; 
@@ -1571,10 +1620,15 @@ function bukaFormProduk(isEdit, idProduk) {
             document.getElementById('prd-nm').value = p.Nama_Produk || ""; 
             if(!listKat.includes(p.Kategori)) document.getElementById('prd-kat').innerHTML += `<option value="${p.Kategori}">${p.Kategori}</option>`;
             document.getElementById('prd-kat').value = p.Kategori || ""; 
+            
+            // --- JIKA SATUAN DI DATABASE LAMA TIDAK ADA DI LIST, TAMBAHKAN OTOMATIS KE DROPDOWN ---
+            if(p.Satuan && !listSatuan.includes(p.Satuan)) document.getElementById('prd-sat').innerHTML += `<option value="${p.Satuan}">${p.Satuan}</option>`;
+            document.getElementById('prd-sat').value = p.Satuan || listSatuan[0];
+
             document.getElementById('prd-warna').value = p.Warna || "";
             document.getElementById('prd-beli').value = p.Harga_Beli ? parseInt(p.Harga_Beli).toLocaleString('id-ID') : ""; document.getElementById('prd-jual').value = p.Harga_Jual ? parseInt(p.Harga_Jual).toLocaleString('id-ID') : ""; 
             document.getElementById('prd-minstok').value = p.Stok_Minimum || "0"; 
-            document.getElementById('prd-stok').value = p.Stok_Saat_Ini || ""; document.getElementById('prd-sat').value = p.Satuan || ""; 
+            document.getElementById('prd-stok').value = p.Stok_Saat_Ini || ""; 
             document.getElementById('prd-stok').readOnly = true; 
             
             if(document.getElementById('prd-sup')) {
@@ -1779,6 +1833,22 @@ function viewStok() {
         filterCabangHtml = `<input type="text" id="stok-filter-cabang" value="${state.cabang}" class="border border-slate-200 p-2 rounded-lg text-xs font-bold bg-slate-100 cursor-not-allowed w-40 text-center uppercase" readonly>`;
     }
     
+    // --- TAMBAHAN: OPSI DROPDOWN PRODUK TRANSFER KHUSUS CABANG INI ---
+    let opsiProdukTFHtml = `<option value="">-- Pilih / Scan Produk yg Dipindah --</option>`;
+    if (state.data.produk) {
+        let prodList = [...state.data.produk].sort((a, b) => String(a.Nama_Produk).localeCompare(String(b.Nama_Produk)));
+        prodList.forEach(p => {
+            let pCabang = String(p.Cabang || 'Pusat').toUpperCase().trim();
+            let myCab = String(state.cabang).toUpperCase().trim();
+            let isAllowed = (roleNorm === 'SUPERADMIN') ? true : (pCabang === myCab);
+            
+            if (isAllowed && parseFloat(p.Stok_Saat_Ini) > 0) {
+                let badge = p.Barcode && p.Barcode !== '-' ? ` | IMEI: ${p.Barcode}` : '';
+                opsiProdukTFHtml += `<option value="${p.ID_Produk}">${p.Nama_Produk}${badge} (Sisa: ${p.Stok_Saat_Ini})</option>`;
+            }
+        });
+    }
+    
     return `
     <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col h-full"> 
         <div class="flex flex-col md:flex-row justify-between md:items-center mb-6 gap-4 border-b border-slate-200 pb-4">
@@ -1842,9 +1912,30 @@ function viewStok() {
                 </table>
             </div> 
         </div> 
-        <!-- (BAGIAN LACAK & TRANSFER CABANG BIARKAN SEPERTI ASLINYA) -->
         <div id="stok-lacak" class="hidden flex-1"><div class="bg-slate-50 p-6 rounded-2xl shadow-sm border border-slate-200 max-w-lg mx-auto mt-6"><h3 class="font-bold text-center mb-4 text-lg">Pelacakan Posisi IMEI / Barcode</h3><div class="flex gap-2 mb-4"><input type="text" id="input-lacak-imei" placeholder="Scan/Ketik Barcode IMEI HP..." class="w-full border border-slate-300 p-3.5 rounded-xl font-bold bg-white focus:border-blue-500 outline-none"><button onclick="bukaKamera('lacak')" class="bg-blue-600 hover:bg-blue-700 text-white px-5 rounded-xl shadow-md transition" title="Scan Kamera"><i class="fa-solid fa-camera text-xl"></i></button></div><button onclick="lacakImeiBarang()" class="w-full bg-blue-600 text-white font-bold py-3.5 rounded-xl shadow-md hover:bg-blue-700 transition"><i class="fa-solid fa-search mr-2"></i>Lacak Posisi Sekarang</button></div><div id="hasil-lacak-imei" class="mt-6 hidden max-w-2xl mx-auto space-y-3"></div></div> 
-        <div id="stok-transfer" class="hidden flex-1"><div class="bg-slate-50 p-6 rounded-2xl shadow-sm border border-slate-200 max-w-2xl mx-auto mt-6"><h3 class="font-bold mb-4 text-lg border-b pb-2">Pindahkan Stok ke Cabang Lain</h3><div class="grid grid-cols-2 gap-4 mb-4"><div><label class="text-xs font-bold text-slate-500">Dari Gudang</label><input type="text" value="${state.cabang}" class="w-full border border-slate-200 p-3 rounded-xl bg-slate-100 font-bold text-slate-500" disabled></div><div><label class="text-xs font-bold text-slate-500">Tujuan Cabang</label><select id="tf-tujuan" class="w-full border border-slate-200 p-3 rounded-xl bg-white font-bold outline-none focus:border-blue-500">${opsiCabangTFHtml}</select></div></div><div class="flex gap-2 mb-4"><div class="relative flex-1"><i class="fa-solid fa-barcode absolute left-4 top-3.5 text-slate-400"></i><input type="text" id="tf-produk" placeholder="Scan Barcode / ID Produk..." class="w-full border border-slate-200 p-3 pl-11 rounded-xl font-bold bg-white outline-none focus:border-blue-500"></div><button onclick="bukaKamera('tf')" class="bg-blue-600 text-white w-12 rounded-xl shadow hover:bg-blue-700 transition"><i class="fa-solid fa-camera"></i></button></div><div class="flex gap-4"><input type="number" id="tf-qty" placeholder="Qty Dikirim" class="w-1/3 border border-slate-200 p-3 rounded-xl font-bold bg-white outline-none focus:border-blue-500"><button id="btn-tf" class="w-2/3 bg-slate-800 text-white font-bold py-3 rounded-xl shadow-md hover:bg-slate-900 transition" onclick="prosesTransferGudang()">Proses Pindah Gudang</button></div></div></div> 
+        
+        <div id="stok-transfer" class="hidden flex-1">
+            <div class="bg-slate-50 p-6 rounded-2xl shadow-sm border border-slate-200 max-w-2xl mx-auto mt-6">
+                <h3 class="font-bold mb-4 text-lg border-b pb-2">Pindahkan Stok ke Cabang Lain</h3>
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                    <div><label class="text-xs font-bold text-slate-500">Dari Gudang</label><input type="text" value="${state.cabang}" class="w-full border border-slate-200 p-3 rounded-xl bg-slate-100 font-bold text-slate-500" disabled></div>
+                    <div><label class="text-xs font-bold text-slate-500">Tujuan Cabang</label><select id="tf-tujuan" class="w-full border border-slate-200 p-3 rounded-xl bg-white font-bold outline-none focus:border-blue-500">${opsiCabangTFHtml}</select></div>
+                </div>
+                <div class="flex gap-2 mb-4">
+                    <div class="relative flex-1">
+                        <i class="fa-solid fa-box-open absolute left-4 top-3.5 text-slate-400"></i>
+                        <select id="tf-produk" class="w-full border border-slate-200 p-3 pl-11 rounded-xl font-bold bg-white outline-none focus:border-blue-500 appearance-none">
+                            ${opsiProdukTFHtml}
+                        </select>
+                    </div>
+                    <button onclick="bukaKamera('tf')" class="bg-blue-600 text-white w-12 rounded-xl shadow hover:bg-blue-700 transition"><i class="fa-solid fa-camera"></i></button>
+                </div>
+                <div class="flex gap-4">
+                    <input type="number" id="tf-qty" placeholder="Qty Dikirim" class="w-1/3 border border-slate-200 p-3 rounded-xl font-bold bg-white outline-none focus:border-blue-500">
+                    <button id="btn-tf" class="w-2/3 bg-slate-800 text-white font-bold py-3 rounded-xl shadow-md hover:bg-slate-900 transition" onclick="prosesTransferGudang()">Proses Pindah Gudang</button>
+                </div>
+            </div>
+        </div> 
     </div> `; 
 }
 
