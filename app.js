@@ -310,9 +310,22 @@ function prosesFotoBarcode(event) {
             // --- UPDATE UNTUK KAMERA TRANSFER CABANG ---
             let prd = state.data.produk.find(p => String(p.Barcode) === decodedText || String(p.ID_Produk) === decodedText);
             if(prd) {
-                let sel = document.getElementById('tf-produk');
-                if(sel) {
-                    sel.value = prd.ID_Produk;
+                let roleNorm = String(state.role).toUpperCase().replace(/\s+/g, '');
+                let myCab = String(state.cabang).toUpperCase().trim();
+                let pCabang = String(prd.Cabang || 'Pusat').toUpperCase().trim();
+                let isAllowed = (roleNorm === 'SUPERADMIN') ? true : (pCabang === myCab);
+                
+                if(!isAllowed) {
+                    showInlineNotif('error', 'Produk ada di cabang lain!');
+                } else if(parseFloat(prd.Stok_Saat_Ini) <= 0) {
+                    showInlineNotif('error', 'Stok produk ini kosong!');
+                } else {
+                    document.getElementById('tf-produk').value = prd.ID_Produk;
+                    let label = document.getElementById('tf-prd-label');
+                    if(label) {
+                        label.innerText = prd.Nama_Produk;
+                        label.classList.replace('text-slate-500', 'text-slate-800');
+                    }
                     showInlineNotif('success', 'Produk terpilih otomatis dari scan kamera!');
                 }
             } else {
@@ -324,7 +337,6 @@ function prosesFotoBarcode(event) {
         showInlineNotif('error', 'Gagal membaca Barcode!'); event.target.value = ''; 
     }); 
 }
-
 // ====================================================================
 // FUNGSI UTAMA (LOGIN, SYNC, NAV)
 // ====================================================================
@@ -1833,22 +1845,6 @@ function viewStok() {
         filterCabangHtml = `<input type="text" id="stok-filter-cabang" value="${state.cabang}" class="border border-slate-200 p-2 rounded-lg text-xs font-bold bg-slate-100 cursor-not-allowed w-40 text-center uppercase" readonly>`;
     }
     
-    // --- TAMBAHAN: OPSI DROPDOWN PRODUK TRANSFER KHUSUS CABANG INI ---
-    let opsiProdukTFHtml = `<option value="">-- Pilih / Scan Produk yg Dipindah --</option>`;
-    if (state.data.produk) {
-        let prodList = [...state.data.produk].sort((a, b) => String(a.Nama_Produk).localeCompare(String(b.Nama_Produk)));
-        prodList.forEach(p => {
-            let pCabang = String(p.Cabang || 'Pusat').toUpperCase().trim();
-            let myCab = String(state.cabang).toUpperCase().trim();
-            let isAllowed = (roleNorm === 'SUPERADMIN') ? true : (pCabang === myCab);
-            
-            if (isAllowed && parseFloat(p.Stok_Saat_Ini) > 0) {
-                let badge = p.Barcode && p.Barcode !== '-' ? ` | IMEI: ${p.Barcode}` : '';
-                opsiProdukTFHtml += `<option value="${p.ID_Produk}">${p.Nama_Produk}${badge} (Sisa: ${p.Stok_Saat_Ini})</option>`;
-            }
-        });
-    }
-    
     return `
     <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col h-full"> 
         <div class="flex flex-col md:flex-row justify-between md:items-center mb-6 gap-4 border-b border-slate-200 pb-4">
@@ -1922,12 +1918,27 @@ function viewStok() {
                     <div><label class="text-xs font-bold text-slate-500">Tujuan Cabang</label><select id="tf-tujuan" class="w-full border border-slate-200 p-3 rounded-xl bg-white font-bold outline-none focus:border-blue-500">${opsiCabangTFHtml}</select></div>
                 </div>
                 <div class="flex gap-2 mb-4">
+                    <!-- CUSTOM SEARCHABLE DROPDOWN UNTUK PRODUK TRANSFER -->
                     <div class="relative flex-1">
-                        <i class="fa-solid fa-box-open absolute left-4 top-3.5 text-slate-400"></i>
-                        <select id="tf-produk" class="w-full border border-slate-200 p-3 pl-11 rounded-xl font-bold bg-white outline-none focus:border-blue-500 appearance-none">
-                            ${opsiProdukTFHtml}
-                        </select>
+                        <div id="tf-prd-overlay" class="hidden fixed inset-0 z-30" onclick="toggleTfDropdown()"></div>
+                        <input type="hidden" id="tf-produk" value="">
+                        <div class="w-full border border-slate-200 p-3 pl-11 rounded-xl bg-white font-bold text-sm flex justify-between items-center cursor-pointer hover:border-blue-400 transition relative z-40" onclick="toggleTfDropdown()">
+                            <i class="fa-solid fa-box-open absolute left-4 top-3.5 text-slate-400"></i>
+                            <span id="tf-prd-label" class="truncate text-slate-500">-- Pilih / Cari Produk yg Dipindah --</span>
+                            <i class="fa-solid fa-chevron-down text-slate-400 text-xs"></i>
+                        </div>
+                        <div id="tf-prd-dropdown" class="hidden absolute top-full left-0 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-2xl z-50 flex-col overflow-hidden max-h-60">
+                            <div class="p-2 border-b border-slate-100 sticky top-0 bg-white">
+                                <div class="relative">
+                                    <i class="fa-solid fa-search absolute left-3 top-2.5 text-slate-400 text-xs"></i>
+                                    <input type="text" id="tf-prd-search" onkeyup="filterListTf()" class="w-full bg-slate-50 border border-slate-200 p-2 pl-8 rounded-lg text-xs font-bold outline-none focus:border-blue-500" placeholder="Ketik Nama / IMEI..." autocomplete="off">
+                                </div>
+                            </div>
+                            <div id="tf-prd-list" class="overflow-y-auto flex-1 p-1 space-y-1"></div>
+                        </div>
                     </div>
+                    <!-- AKHIR CUSTOM DROPDOWN -->
+
                     <button onclick="bukaKamera('tf')" class="bg-blue-600 text-white w-12 rounded-xl shadow hover:bg-blue-700 transition"><i class="fa-solid fa-camera"></i></button>
                 </div>
                 <div class="flex gap-4">
@@ -1937,6 +1948,82 @@ function viewStok() {
             </div>
         </div> 
     </div> `; 
+}
+
+// LOGIKA BARU UNTUK CUSTOM SEARCHABLE DROPDOWN TRANSFER
+function renderListTf(searchVal = "") {
+    let listEl = document.getElementById('tf-prd-list');
+    if(!listEl) return;
+    
+    let roleNorm = String(state.role).toUpperCase().replace(/\s+/g, '');
+    let myCab = String(state.cabang).toUpperCase().trim();
+    
+    let html = "";
+    let prodList = state.data.produk ? [...state.data.produk].sort((a, b) => String(a.Nama_Produk).localeCompare(String(b.Nama_Produk))) : [];
+    
+    let filtered = prodList.filter(p => {
+        let pCabang = String(p.Cabang || 'Pusat').toUpperCase().trim();
+        let isAllowed = (roleNorm === 'SUPERADMIN') ? true : (pCabang === myCab);
+        if (!isAllowed || parseFloat(p.Stok_Saat_Ini) <= 0) return false;
+        
+        if (searchVal) {
+            let s = searchVal.toLowerCase();
+            return String(p.Nama_Produk).toLowerCase().includes(s) || 
+                   String(p.Barcode).toLowerCase().includes(s) || 
+                   String(p.Warna || "").toLowerCase().includes(s) || 
+                   String(p.ID_Produk).toLowerCase().includes(s);
+        }
+        return true;
+    });
+
+    if(filtered.length === 0) {
+        html = `<div class="p-3 text-center text-xs font-bold text-slate-400">Tidak ada barang / stok kosong.</div>`;
+    } else {
+        filtered.forEach(p => {
+            // TAMBAHAN: MUNCULKAN IMEI DAN WARNA
+            let infoImei = p.Barcode && p.Barcode !== '-' ? `<span class="text-[9px] bg-slate-100 px-1.5 py-0.5 rounded font-mono text-slate-500 border border-slate-200 mt-1 inline-block"><i class="fa-solid fa-barcode mr-1"></i>${p.Barcode}</span>` : '';
+            let infoWarna = p.Warna && p.Warna !== '-' ? `<span class="text-[9px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-500 border border-slate-200 mt-1 inline-block ml-1"><i class="fa-solid fa-palette mr-1"></i>${p.Warna}</span>` : '';
+
+            html += `<div onclick="pilihProdukTf('${p.ID_Produk}', '${p.Nama_Produk.replace(/'/g, "\\'")}')" class="p-2 hover:bg-blue-50 rounded-lg cursor-pointer transition flex justify-between items-center group">
+                <div class="flex-1 pr-2">
+                    <p class="font-bold text-xs text-slate-700 group-hover:text-blue-700 leading-tight">${p.Nama_Produk}</p>
+                    <div>${infoImei}${infoWarna}</div>
+                </div>
+                <div class="text-right shrink-0">
+                    <span class="text-[10px] font-black text-emerald-600 bg-emerald-50 px-2 py-1 rounded border border-emerald-100">Sisa: ${p.Stok_Saat_Ini}</span>
+                </div>
+            </div>`;
+        });
+    }
+    listEl.innerHTML = html;
+}
+function toggleTfDropdown() {
+    let drop = document.getElementById('tf-prd-dropdown');
+    let overlay = document.getElementById('tf-prd-overlay');
+    let search = document.getElementById('tf-prd-search');
+    if(drop.classList.contains('hidden')) {
+        drop.classList.replace('hidden', 'flex');
+        overlay.classList.remove('hidden');
+        search.value = "";
+        renderListTf();
+        setTimeout(() => search.focus(), 100);
+    } else {
+        drop.classList.replace('flex', 'hidden');
+        overlay.classList.add('hidden');
+    }
+}
+
+function filterListTf() {
+    let val = document.getElementById('tf-prd-search').value;
+    renderListTf(val);
+}
+
+function pilihProdukTf(id, nama) {
+    document.getElementById('tf-produk').value = id;
+    let label = document.getElementById('tf-prd-label');
+    label.innerText = nama;
+    label.classList.replace('text-slate-500', 'text-slate-800');
+    toggleTfDropdown();
 }
 
 function filterStokUI() { 
@@ -2244,7 +2331,17 @@ async function prosesTransferGudang() {
   let payload = { id_produk: prd.ID_Produk, qty: qty, cabang_asal: state.cabang, cabang_tujuan: cbgTujuan };
   let btn = document.getElementById('btn-tf'); btn.innerHTML = "Memproses Transfer..."; btn.disabled = true;
   let res = await requestAPIWithAuth('prosesTransferCabang', payload);
-  if(res.status) { showInlineNotif('success', `Berhasil! ${qty} unit dipindah ke ${cbgTujuan}`); document.getElementById('tf-produk').value = ""; document.getElementById('tf-qty').value = ""; syncDataLiveBackground(); } 
+  if(res.status) { 
+      showInlineNotif('success', `Berhasil! ${qty} unit dipindah ke ${cbgTujuan}`); 
+      document.getElementById('tf-produk').value = ""; 
+      let label = document.getElementById('tf-prd-label');
+      if(label) {
+          label.innerText = "-- Pilih / Cari Produk yg Dipindah --";
+          label.classList.replace('text-slate-800', 'text-slate-500');
+      }
+      document.getElementById('tf-qty').value = ""; 
+      syncDataLiveBackground(); 
+  } 
   else { showInlineNotif('error', res.msg); }
   btn.innerHTML = "Proses Pindah Gudang"; btn.disabled = false;
 }
@@ -2751,6 +2848,19 @@ async function simpanDataPO() {
 // VIEW & FUNGSI: LAPORAN BISNIS & ANALISIS FINANSIAL
 // ====================================================================
 function viewLaporan() { 
+  let savedCabang = JSON.parse(localStorage.getItem('sanstech_list-gudang') || '["Pusat"]'); 
+  if(!savedCabang.includes("Pusat")) savedCabang.unshift("Pusat");
+  let filterCabangHtml = '';
+  let roleNorm = String(state.role).toUpperCase().replace(/\s+/g, '');
+  
+  if(roleNorm === 'SUPERADMIN') {
+      filterCabangHtml = `<div><label class="text-[10px] font-bold text-slate-500 uppercase">Pilih Cabang</label><br><select id="lap-filter-cabang" onchange="renderChartLaporan()" class="border border-slate-300 p-2.5 rounded-lg mt-1 font-bold outline-none bg-white focus:border-blue-500 min-w-[150px]"><option value="SEMUA">Semua Cabang</option>`;
+      savedCabang.forEach(c => { filterCabangHtml += `<option value="${c}">${c}</option>`; });
+      filterCabangHtml += `</select></div>`;
+  } else {
+      filterCabangHtml = `<div><label class="text-[10px] font-bold text-slate-500 uppercase">Pilih Cabang</label><br><input type="text" id="lap-filter-cabang" value="${state.cabang}" class="border border-slate-300 p-2.5 rounded-lg mt-1 font-bold bg-slate-100 cursor-not-allowed min-w-[150px] uppercase text-center" readonly></div>`;
+  }
+
   return ` 
   <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col h-full overflow-y-auto"> 
       <div class="flex flex-col md:flex-row justify-between md:items-center mb-6 gap-4 border-b border-slate-200 pb-4">
@@ -2758,6 +2868,7 @@ function viewLaporan() {
       </div>
       <div class="bg-slate-50 p-5 rounded-2xl border border-slate-200 mb-6 shadow-sm">
           <div class="flex flex-wrap gap-4 items-end mb-4">
+             ${filterCabangHtml}
              <div><label class="text-[10px] font-bold text-slate-500 uppercase">Dari Tanggal</label><br><input type="date" id="lap-start" onchange="renderChartLaporan()" class="border border-slate-300 p-2.5 rounded-lg mt-1 font-bold outline-none bg-white focus:border-blue-500 min-w-[160px]"></div>
              <div><label class="text-[10px] font-bold text-slate-500 uppercase">Sampai Tanggal</label><br><input type="date" id="lap-end" onchange="renderChartLaporan()" class="border border-slate-300 p-2.5 rounded-lg mt-1 font-bold outline-none bg-white focus:border-blue-500 min-w-[160px]"></div>
              <button onclick="renderChartLaporan()" class="bg-blue-600 hover:bg-blue-700 transition text-white px-6 py-2.5 rounded-lg font-black shadow-md"><i class="fa-solid fa-filter mr-2"></i> Terapkan Filter</button>
@@ -2819,19 +2930,27 @@ function viewLaporan() {
       </div> 
   </div> `; 
 }
+
 function renderChartLaporan() { 
   let startDateVal = document.getElementById('lap-start').value; let endDateVal = document.getElementById('lap-end').value; 
+  let filterCabEl = document.getElementById('lap-filter-cabang');
+  let filterCab = filterCabEl ? filterCabEl.value.toUpperCase().trim() : 'SEMUA';
+
   let formatYMD = (dateObj) => { let y = dateObj.getFullYear(); let m = String(dateObj.getMonth() + 1).padStart(2, '0'); let d = String(dateObj.getDate()).padStart(2, '0'); return `${y}-${m}-${d}`; }; 
   let endD = new Date(); if (endDateVal) { let parts = endDateVal.split('-'); endD = new Date(parts[0], parts[1]-1, parts[2], 23, 59, 59); } else { endD.setHours(23, 59, 59, 999); } 
   let startD = new Date(); if (startDateVal) { let parts = startDateVal.split('-'); startD = new Date(parts[0], parts[1]-1, parts[2], 0, 0, 0); } else { startD.setDate(1); startD.setHours(0, 0, 0, 0); } 
   if(document.getElementById('lap-start')) document.getElementById('lap-start').value = formatYMD(startD); if(document.getElementById('lap-end')) document.getElementById('lap-end').value = formatYMD(endD); 
+  
   let omsetRange = 0; let hppRange = 0; let pengeluaranRange = 0;
   let terlarisMap = {}; let chartMap = {}; 
   let kategoriMap = {};
+  
   if(state.data.penjualan) { 
       let validInvLunas = state.data.penjualan.filter(j => { 
           let parts = String(j.Waktu).substring(0, 10).split('-'); let wkt = new Date(parts[0], parts[1]-1, parts[2], 12, 0, 0); 
-          return wkt >= startD && wkt <= endD && j.Status === 'LUNAS'; 
+          let jCab = String(j.Cabang || 'Pusat').toUpperCase().trim();
+          let passCab = (filterCab === 'SEMUA' || jCab === filterCab);
+          return wkt >= startD && wkt <= endD && j.Status === 'LUNAS' && passCab; 
       });
       let validIds = validInvLunas.map(j => j.ID_Invoice);
       validInvLunas.forEach(j => {
@@ -2863,6 +2982,7 @@ function renderChartLaporan() {
           });
       }
   }
+  
   let labels = []; let dataPenjualan = []; let dataModal = []; 
   let sortedDates = Object.keys(chartMap).sort();
   if(sortedDates.length > 60) sortedDates = sortedDates.slice(sortedDates.length - 60); 
@@ -2872,20 +2992,29 @@ function renderChartLaporan() {
       dataPenjualan.push(chartMap[tgl].omset);
       dataModal.push(chartMap[tgl].hpp);
   });
+  
   let kasMasukTotal = 0; let kasKeluarTotal = 0;
   if(state.data.keuangan) { 
       state.data.keuangan.forEach(k => { 
-          let nom = parseFloat(k.Nominal||0); 
-          if(k.Jenis_Arus === 'PEMASUKAN') kasMasukTotal += nom; else kasKeluarTotal += nom; 
-          let parts = String(k.Waktu).substring(0, 10).split('-'); 
-          let wkt = new Date(parts[0], parts[1]-1, parts[2], 12, 0, 0); 
-          if (wkt >= startD && wkt <= endD && k.Jenis_Arus === 'PENGELUARAN' && !String(k.Keterangan).includes('PO ') && !String(k.Keterangan).includes('Pembelian') && !String(k.Keterangan).includes('Retur')) {
-              pengeluaranRange += nom;
+          let kCab = String(k.Cabang || 'Pusat').toUpperCase().trim();
+          let passCab = (filterCab === 'SEMUA' || kCab === filterCab);
+          
+          if(passCab) {
+              let nom = parseFloat(k.Nominal||0); 
+              if(k.Jenis_Arus === 'PEMASUKAN') kasMasukTotal += nom; else kasKeluarTotal += nom; 
+              
+              let parts = String(k.Waktu).substring(0, 10).split('-'); 
+              let wkt = new Date(parts[0], parts[1]-1, parts[2], 12, 0, 0); 
+              if (wkt >= startD && wkt <= endD && k.Jenis_Arus === 'PENGELUARAN' && !String(k.Keterangan).includes('PO ') && !String(k.Keterangan).includes('Pembelian') && !String(k.Keterangan).includes('Retur')) {
+                  pengeluaranRange += nom;
+              }
           }
       }); 
   }
+  
   let labaKotorRange = omsetRange - hppRange;
   let labaBersihRange = labaKotorRange - pengeluaranRange;
+  
   if(document.getElementById('lap-omset')) document.getElementById('lap-omset').innerText = formatRp(omsetRange); 
   if(document.getElementById('lap-laba-kotor')) document.getElementById('lap-laba-kotor').innerText = formatRp(labaKotorRange); 
   if(document.getElementById('lap-laba-bersih')) document.getElementById('lap-laba-bersih').innerText = formatRp(labaBersihRange); 
@@ -2895,6 +3024,7 @@ function renderChartLaporan() {
   if(document.getElementById('dtl-kotor')) document.getElementById('dtl-kotor').innerText = formatRp(labaKotorRange); 
   if(document.getElementById('dtl-op')) document.getElementById('dtl-op').innerText = "- " + formatRp(pengeluaranRange); 
   if(document.getElementById('dtl-bersih')) document.getElementById('dtl-bersih').innerText = formatRp(labaBersihRange); 
+  
   let htmlKat = "";
   let sortedKat = Object.keys(kategoriMap).sort((a,b) => kategoriMap[b].omset - kategoriMap[a].omset);
   if(sortedKat.length === 0) {
@@ -2906,10 +3036,14 @@ function renderChartLaporan() {
       });
   }
   if(document.getElementById('lap-kategori')) document.getElementById('lap-kategori').innerHTML = htmlKat;
+  
   let rekapCabang = {};
   if(state.data.produk) {
       state.data.produk.forEach(p => {
           let cbg = p.Cabang || 'Pusat';
+          let pCab = String(cbg).toUpperCase().trim();
+          if(filterCab !== 'SEMUA' && pCab !== filterCab) return;
+          
           if(!rekapCabang[cbg]) rekapCabang[cbg] = { stok: 0, terjual: 0, so: 0 };
           rekapCabang[cbg].stok += parseFloat(p.Stok_Saat_Ini || 0);
       });
@@ -2917,7 +3051,9 @@ function renderChartLaporan() {
   if(state.data.penjualan && state.data.penjualan_detail) { 
       let validInv = state.data.penjualan.filter(j => { 
           let parts = String(j.Waktu).substring(0, 10).split('-'); let wkt = new Date(parts[0], parts[1]-1, parts[2], 12, 0, 0); 
-          return wkt >= startD && wkt <= endD && j.Status !== 'RETUR'; 
+          let jCab = String(j.Cabang || 'Pusat').toUpperCase().trim();
+          let passCab = (filterCab === 'SEMUA' || jCab === filterCab);
+          return wkt >= startD && wkt <= endD && j.Status !== 'RETUR' && passCab; 
       }); 
       validInv.forEach(j => {
           let cbg = j.Cabang || 'Pusat';
@@ -2935,114 +3071,28 @@ function renderChartLaporan() {
   });
   if(htmlRekap === "") htmlRekap = `<tr><td colspan="4" class="text-center p-4 text-slate-400">Belum ada data cabang.</td></tr>`;
   if(document.getElementById('lap-rekap-cabang')) document.getElementById('lap-rekap-cabang').innerHTML = htmlRekap;
+  
   let sortTerlaris = Object.keys(terlarisMap).map(k => ({id: k, qty: terlarisMap[k]})).sort((a,b) => b.qty - a.qty).slice(0, 5); let htmlTerlaris = ""; if(sortTerlaris.length === 0) { htmlTerlaris = `<p class="text-xs text-slate-500 text-center mt-8 font-bold">Belum ada data penjualan pada range ini.</p>`; } else { sortTerlaris.forEach((item, idx) => { let prd = state.data.produk.find(p => String(p.ID_Produk) === String(item.id)); let nama = prd ? prd.Nama_Produk : item.id; htmlTerlaris += `<div class="flex justify-between items-center p-3 bg-white border border-slate-100 rounded-xl shadow-sm"><div class="flex items-center gap-3"><div class="w-7 h-7 rounded bg-orange-100 text-orange-600 font-black text-xs flex items-center justify-center">#${idx+1}</div><p class="text-xs font-bold text-slate-700 truncate w-32 md:w-48">${nama}</p></div><p class="text-xs font-black text-blue-600">${item.qty} Terjual</p></div>`; }); } if(document.getElementById('lap-terlaris')) document.getElementById('lap-terlaris').innerHTML = htmlTerlaris; 
+  
   let canvas = document.getElementById('chartLaporanLaba'); if(!canvas) return; if(chartLaporan !== null) chartLaporan.destroy(); let ctx = canvas.getContext('2d'); chartLaporan = new Chart(ctx, { type: 'bar', data: { labels: labels, datasets: [{ label: 'Omset Kotor', data: dataPenjualan, backgroundColor: '#3b82f6', borderRadius: 4 }, { label: 'HPP (Modal)', data: dataModal, backgroundColor: '#f43f5e', borderRadius: 4 }] }, options: { responsive: true, maintainAspectRatio: false } }); 
-}
-function exportDataCSV(tipe) { 
-    let csv = "\uFEFF"; 
-    let fileName = ""; 
-    
-    const esc = (v) => {
-        if (v === null || v === undefined) return '""';
-        return '"' + String(v).replace(/"/g, '""') + '"';
-    };
-
-    if(tipe === 'penjualan') { 
-        if(!state.data.penjualan || state.data.penjualan.length === 0) return showInlineNotif('error', 'Data kosong!'); 
-        csv += "Invoice;Waktu;Pelanggan;Kasir;Cabang;Status;Nama Produk;Kategori;Harga Satuan;Qty;Total Harga Item;Metode Bayar\n"; 
-        state.data.penjualan.forEach(p => { 
-            let dts = state.data.penjualan_detail ? state.data.penjualan_detail.filter(d => d.ID_Invoice === p.ID_Invoice) : [];
-            if(dts.length === 0) {
-                 csv += `${esc(p.ID_Invoice)};${esc(p.Waktu)};${esc(p.ID_Pelanggan)};${esc(p.Kasir)};${esc(p.Cabang||state.cabang)};${esc(p.Status)};${esc("-")};${esc("-")};${esc(0)};${esc(0)};${esc(p.Total_Akhir)};${esc(p.Metode_Pembayaran)}\n`;
-            } else {
-                 dts.forEach(d => {
-                      let prd = state.data.produk.find(x => x.ID_Produk === d.ID_Produk);
-                      let namaPrd = prd ? prd.Nama_Produk : d.ID_Produk; 
-                      let katPrd = prd ? prd.Kategori : "Lainnya";
-                      csv += `${esc(p.ID_Invoice)};${esc(p.Waktu)};${esc(p.ID_Pelanggan)};${esc(p.Kasir)};${esc(p.Cabang||state.cabang)};${esc(p.Status)};${esc(namaPrd)};${esc(katPrd)};${esc(d.Harga_Satuan||0)};${esc(d.Qty||0)};${esc(d.Total_Harga||0)};${esc(p.Metode_Pembayaran)}\n`;
-                 });
-            }
-        }); 
-        fileName = "Data_Penjualan.csv"; 
-    } 
-    else if(tipe === 'pembelian') { 
-        if(!state.data.pembelian || state.data.pembelian.length === 0) return showInlineNotif('error', 'Data kosong!'); 
-        csv += "PO;Waktu;Supplier;Total Tagihan;Status Bayar;Admin\n"; 
-        state.data.pembelian.forEach(p => { 
-            let sup = state.data.supplier.find(s => s.ID_Supplier === p.ID_Supplier);
-            let namaSup = sup ? sup.Nama_Supplier : p.ID_Supplier;
-            csv += `${esc(p.ID_PO)};${esc(p.Waktu)};${esc(namaSup)};${esc(p.Total_Tagihan)};${esc(p.Status_Bayar)};${esc(p.Admin)}\n`; 
-        }); 
-        fileName = "Data_Pembelian.csv"; 
-    } 
-    else if(tipe === 'stok' || tipe === 'stok_mutasi') { 
-        if(!state.data.stok || state.data.stok.length === 0) return showInlineNotif('error', 'Data kosong!'); 
-        csv += "ID Stok;Waktu;ID Produk;Nama Produk;Pergerakan;Jumlah;Keterangan;Cabang\n"; 
-        state.data.stok.forEach(p => { 
-            let prd = state.data.produk.find(x => x.ID_Produk === p.ID_Produk);
-            let namaPrd = prd ? prd.Nama_Produk : "-"; 
-            csv += `${esc(p.ID_Stok)};${esc(p.Waktu)};${esc(p.ID_Produk)};${esc(namaPrd)};${esc(p.Jenis_Pergerakan)};${esc(p.Jumlah)};${esc(p.Keterangan)};${esc(p.Cabang||state.cabang)}\n`; 
-        }); 
-        fileName = "Data_Mutasi_Stok.csv"; 
-    } 
-    else if(tipe === 'stok_pantau') { 
-        if(!state.data.produk || state.data.produk.length === 0) return showInlineNotif('error', 'Data kosong!'); 
-        csv += "ID Produk;Barcode;Nama Produk;Kategori;Cabang;Stok Saat Ini;Satuan\n"; 
-        state.data.produk.forEach(p => { 
-            csv += `${esc(p.ID_Produk)};${esc(p.Barcode)};${esc(p.Nama_Produk)};${esc(p.Kategori)};${esc(p.Cabang||'Pusat')};${esc(p.Stok_Saat_Ini)};${esc(p.Satuan)}\n`; 
-        }); 
-        fileName = "Data_Sisa_Stok.csv"; 
-    } 
-    else if(tipe === 'keuangan') { 
-        if(!state.data.keuangan || state.data.keuangan.length === 0) return showInlineNotif('error', 'Data kosong!'); 
-        csv += "Waktu;Ref/ID;Tipe;Nominal;Keterangan;Kasir;Cabang\n"; 
-        state.data.keuangan.forEach(p => { 
-            csv += `${esc(p.Waktu)};${esc(p.ID_Transaksi)};${esc(p.Jenis_Arus)};${esc(p.Nominal)};${esc(p.Keterangan)};${esc(p.Kasir)};${esc(p.Cabang||state.cabang)}\n`; 
-        }); 
-        fileName = "Data_ArusKas.csv"; 
-    } 
-    else if(tipe === 'produk') { 
-        if(!state.data.produk || state.data.produk.length === 0) return showInlineNotif('error', 'Data kosong!'); 
-        csv += "ID Produk;Barcode;Nama Produk;Supplier;Kategori;Warna;Satuan;Harga Beli;Harga Jual;Stok;Min Stok;Cabang\n"; 
-        state.data.produk.forEach(p => { 
-            csv += `${esc(p.ID_Produk)};${esc(p.Barcode)};${esc(p.Nama_Produk)};${esc(p.Supplier||'-')};${esc(p.Kategori)};${esc(p.Warna)};${esc(p.Satuan)};${esc(p.Harga_Beli)};${esc(p.Harga_Jual)};${esc(p.Stok_Saat_Ini)};${esc(p.Stok_Minimum)};${esc(p.Cabang||'Pusat')}\n`; 
-        }); 
-        fileName = "Data_Master_Produk.csv"; 
-    } 
-    else if(tipe === 'pelanggan') { 
-        if(!state.data.pelanggan || state.data.pelanggan.length === 0) return showInlineNotif('error', 'Data kosong!'); 
-        csv += "ID Pelanggan;Nama Pelanggan;No HP;Grup;Alamat;Poin;Piutang\n"; 
-        state.data.pelanggan.forEach(p => { 
-            csv += `${esc(p.ID_Pelanggan)};${esc(p.Nama_Pelanggan)};${esc(p.No_HP)};${esc(p.Grup_Pelanggan)};${esc(p.Alamat)};${esc(p.Poin_Member)};${esc(p.Piutang)}\n`; 
-        }); 
-        fileName = "Data_Pelanggan.csv"; 
-    } 
-    else if(tipe === 'supplier') { 
-        if(!state.data.supplier || state.data.supplier.length === 0) return showInlineNotif('error', 'Data kosong!'); 
-        csv += "ID Supplier;Nama Supplier;Kontak;Alamat;Hutang\n"; 
-        state.data.supplier.forEach(p => { 
-            let riwayat = state.data.pembelian ? state.data.pembelian.filter(t => t.ID_Supplier === p.ID_Supplier) : []; 
-            let totalHutangReal = 0; 
-            riwayat.forEach(r => { if(r.Status_Bayar === 'HUTANG') totalHutangReal += parseFloat(r.Total_Tagihan || 0); }); 
-            csv += `${esc(p.ID_Supplier)};${esc(p.Nama_Supplier)};${esc(p.Kontak)};${esc(p.Alamat)};${esc(totalHutangReal)}\n`; 
-        }); 
-        fileName = "Data_Supplier.csv"; 
-    } 
-    
-    let link = document.createElement("a"); 
-    let blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' }); 
-    let url = URL.createObjectURL(blob); 
-    link.setAttribute("href", url); 
-    link.setAttribute("download", fileName); 
-    document.body.appendChild(link); 
-    link.click(); 
-    document.body.removeChild(link); 
 }
 
 // ====================================================================
 // VIEW & FUNGSI: KEUANGAN (ARUS KAS & REKONSILIASI)
 // ====================================================================
 function viewKeuangan() { 
+  let savedCabang = JSON.parse(localStorage.getItem('sanstech_list-gudang') || '["Pusat"]'); 
+  if(!savedCabang.includes("Pusat")) savedCabang.unshift("Pusat");
+  let filterCabangHtml = '';
+  let roleNorm = String(state.role).toUpperCase().replace(/\s+/g, '');
+  if(roleNorm === 'SUPERADMIN') {
+      filterCabangHtml = `<div><label class="text-[10px] font-bold text-slate-500 uppercase">Filter Cabang</label><br><select id="keu-filter-cabang" onchange="filterKeuanganUI()" class="border border-slate-300 p-2.5 rounded-lg mt-1 font-bold outline-none bg-white focus:border-blue-500 min-w-[150px]"><option value="SEMUA">Semua Cabang</option>`;
+      savedCabang.forEach(c => { filterCabangHtml += `<option value="${c}">${c}</option>`; });
+      filterCabangHtml += `</select></div>`;
+  } else {
+      filterCabangHtml = `<div><label class="text-[10px] font-bold text-slate-500 uppercase">Cabang</label><br><input type="text" id="keu-filter-cabang" value="${state.cabang}" class="border border-slate-300 p-2.5 rounded-lg mt-1 font-bold bg-slate-100 cursor-not-allowed min-w-[150px] uppercase text-center" readonly></div>`;
+  }
+  
   return ` 
   <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col h-full relative">
     <div class="flex justify-between items-center mb-6">
@@ -3065,6 +3115,7 @@ function viewKeuangan() {
     </div>
     <div class="bg-slate-50 p-5 rounded-2xl border border-slate-200 mb-6 shadow-sm">
         <div class="flex flex-wrap gap-4 items-end mb-2">
+            ${filterCabangHtml}
             <div><label class="text-[10px] font-bold text-slate-500 uppercase">Dari Tanggal</label><br><input type="date" id="keu-start" class="border border-slate-300 p-2.5 rounded-lg mt-1 font-bold outline-none bg-white focus:border-blue-500"></div>
             <div><label class="text-[10px] font-bold text-slate-500 uppercase">Sampai Tanggal</label><br><input type="date" id="keu-end" class="border border-slate-300 p-2.5 rounded-lg mt-1 font-bold outline-none bg-white focus:border-blue-500"></div>
             <div><label class="text-[10px] font-bold text-slate-500 uppercase">Jenis Arus</label><br><select id="keu-tipe" class="border border-slate-300 p-2.5 rounded-lg mt-1 font-bold outline-none bg-white focus:border-blue-500 min-w-[150px]"><option value="SEMUA">Semua Arus</option><option value="PEMASUKAN">Pemasukan Saja</option><option value="PENGELUARAN">Pengeluaran Saja</option></select></div>
@@ -3090,7 +3141,11 @@ function viewKeuangan() {
   </div>
   `; 
 }
+
 function filterKeuanganUI() { 
+    let filterCabEl = document.getElementById('keu-filter-cabang');
+    let filterCab = filterCabEl ? filterCabEl.value.toUpperCase().trim() : 'SEMUA';
+    
     let d = new Date(); 
     let yyyy = d.getFullYear(); 
     let mm = String(d.getMonth() + 1).padStart(2, '0'); 
@@ -3106,11 +3161,15 @@ function filterKeuanganUI() {
     let tipeVal = elTipe ? elTipe.value : 'SEMUA'; 
     let startD = new Date(startVal + "T00:00:00"); 
     let endD = new Date(endVal + "T23:59:59");
+    
     let html = ""; let masuk = 0; let keluar = 0; 
     if(!state.data.keuangan || state.data.keuangan.length === 0) { 
         html = `<tr><td colspan="5" class="p-10 text-center text-slate-400 font-bold">Belum ada riwayat transaksi keuangan.</td></tr>`; 
     } else { 
         let filteredData = state.data.keuangan.filter(t => {
+            let tCab = String(t.Cabang || 'Pusat').toUpperCase().trim();
+            let passCab = (filterCab === 'SEMUA' || tCab === filterCab);
+            
             let rawDate = String(t.Waktu).substring(0, 10);
             let wkt;
             if(rawDate.includes('/')) {
@@ -3121,8 +3180,10 @@ function filterKeuanganUI() {
             }
             let passDate = (wkt >= startD && wkt <= endD);
             let passTipe = (tipeVal === 'SEMUA' || t.Jenis_Arus === tipeVal);
-            return passDate && passTipe;
+            
+            return passDate && passTipe && passCab;
         });
+        
         if(filteredData.length === 0) {
              html = `<tr><td colspan="5" class="p-10 text-center text-slate-400 font-bold">Tidak ada data pada filter ini.</td></tr>`; 
         } else { 
