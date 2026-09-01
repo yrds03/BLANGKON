@@ -3076,6 +3076,127 @@ function renderChartLaporan() {
   
   let canvas = document.getElementById('chartLaporanLaba'); if(!canvas) return; if(chartLaporan !== null) chartLaporan.destroy(); let ctx = canvas.getContext('2d'); chartLaporan = new Chart(ctx, { type: 'bar', data: { labels: labels, datasets: [{ label: 'Omset Kotor', data: dataPenjualan, backgroundColor: '#3b82f6', borderRadius: 4 }, { label: 'HPP (Modal)', data: dataModal, backgroundColor: '#f43f5e', borderRadius: 4 }] }, options: { responsive: true, maintainAspectRatio: false } }); 
 }
+function exportDataCSV(tipe) { 
+    try {
+        let csv = "\uFEFF"; 
+        let fileName = ""; 
+        
+        // Fungsi amankan karakter aneh / tanda kutip
+        const esc = (v) => {
+            if (v === null || v === undefined) return '""';
+            return '"' + String(v).replace(/"/g, '""') + '"';
+        };
+
+        if(tipe === 'penjualan') { 
+            if(!state.data.penjualan || state.data.penjualan.length === 0) return showInlineNotif('error', 'Data kosong!'); 
+            csv += "Invoice;Waktu;Pelanggan;Kasir;Cabang;Status;Nama Produk;Kategori;Harga Satuan;Qty;Total Harga Item;Metode Bayar\n"; 
+            state.data.penjualan.forEach(p => { 
+                if(!p) return;
+                let dts = state.data.penjualan_detail ? state.data.penjualan_detail.filter(d => d.ID_Invoice === p.ID_Invoice) : [];
+                if(dts.length === 0) {
+                     csv += `${esc(p.ID_Invoice)};${esc(p.Waktu)};${esc(p.ID_Pelanggan)};${esc(p.Kasir)};${esc(p.Cabang||state.cabang)};${esc(p.Status)};${esc("-")};${esc("-")};${esc(0)};${esc(0)};${esc(p.Total_Akhir)};${esc(p.Metode_Pembayaran)}\n`;
+                } else {
+                     dts.forEach(d => {
+                          let prd = state.data.produk.find(x => x.ID_Produk === d.ID_Produk);
+                          let namaPrd = prd ? prd.Nama_Produk : d.ID_Produk; 
+                          let katPrd = prd ? prd.Kategori : "Lainnya";
+                          csv += `${esc(p.ID_Invoice)};${esc(p.Waktu)};${esc(p.ID_Pelanggan)};${esc(p.Kasir)};${esc(p.Cabang||state.cabang)};${esc(p.Status)};${esc(namaPrd)};${esc(katPrd)};${esc(d.Harga_Satuan||0)};${esc(d.Qty||0)};${esc(d.Total_Harga||0)};${esc(p.Metode_Pembayaran)}\n`;
+                     });
+                }
+            }); 
+            fileName = "Data_Penjualan.csv"; 
+        } 
+        else if(tipe === 'pembelian') { 
+            if(!state.data.pembelian || state.data.pembelian.length === 0) return showInlineNotif('error', 'Data kosong!'); 
+            csv += "PO;Waktu;Supplier;Total Tagihan;Status Bayar;Admin\n"; 
+            state.data.pembelian.forEach(p => { 
+                if(!p) return;
+                let sup = state.data.supplier.find(s => s.ID_Supplier === p.ID_Supplier);
+                let namaSup = sup ? sup.Nama_Supplier : p.ID_Supplier;
+                csv += `${esc(p.ID_PO)};${esc(p.Waktu)};${esc(namaSup)};${esc(p.Total_Tagihan)};${esc(p.Status_Bayar)};${esc(p.Admin)}\n`; 
+            }); 
+            fileName = "Data_Pembelian.csv"; 
+        } 
+        else if(tipe === 'stok' || tipe === 'stok_mutasi') { 
+            if(!state.data.stok || state.data.stok.length === 0) return showInlineNotif('error', 'Data kosong!'); 
+            csv += "ID Stok;Waktu;ID Produk;Nama Produk;Pergerakan;Jumlah;Keterangan;Cabang\n"; 
+            state.data.stok.forEach(p => { 
+                if(!p) return;
+                let prd = state.data.produk.find(x => x.ID_Produk === p.ID_Produk);
+                let namaPrd = prd ? prd.Nama_Produk : "-"; 
+                csv += `${esc(p.ID_Stok)};${esc(p.Waktu)};${esc(p.ID_Produk)};${esc(namaPrd)};${esc(p.Jenis_Pergerakan)};${esc(p.Jumlah)};${esc(p.Keterangan)};${esc(p.Cabang||state.cabang)}\n`; 
+            }); 
+            fileName = "Data_Mutasi_Stok.csv"; 
+        } 
+        else if(tipe === 'stok_pantau') { 
+            if(!state.data.produk || state.data.produk.length === 0) return showInlineNotif('error', 'Data kosong!'); 
+            csv += "ID Produk;Barcode;Nama Produk;Kategori;Cabang;Stok Saat Ini;Satuan\n"; 
+            state.data.produk.forEach(p => { 
+                if(!p) return;
+                csv += `${esc(p.ID_Produk)};${esc(p.Barcode)};${esc(p.Nama_Produk)};${esc(p.Kategori)};${esc(p.Cabang||'Pusat')};${esc(p.Stok_Saat_Ini)};${esc(p.Satuan)}\n`; 
+            }); 
+            fileName = "Data_Sisa_Stok.csv"; 
+        } 
+        else if(tipe === 'keuangan') { 
+            if(!state.data.keuangan || state.data.keuangan.length === 0) return showInlineNotif('error', 'Data kosong!'); 
+            csv += "Waktu;Ref/ID;Tipe;Nominal;Keterangan;Kasir;Cabang\n"; 
+            state.data.keuangan.forEach(p => { 
+                if(!p) return;
+                csv += `${esc(p.Waktu)};${esc(p.ID_Transaksi)};${esc(p.Jenis_Arus)};${esc(p.Nominal)};${esc(p.Keterangan)};${esc(p.Kasir)};${esc(p.Cabang||state.cabang)}\n`; 
+            }); 
+            fileName = "Data_ArusKas.csv"; 
+        } 
+        else if(tipe === 'produk') { 
+            if(!state.data.produk || state.data.produk.length === 0) return showInlineNotif('error', 'Data kosong!'); 
+            csv += "ID Produk;Barcode;Nama Produk;Supplier;Kategori;Warna;Satuan;Harga Beli;Harga Jual;Stok;Min Stok;Cabang\n"; 
+            state.data.produk.forEach(p => { 
+                if(!p) return; // Cegah crash jika ada baris yg error
+                csv += `${esc(p.ID_Produk)};${esc(p.Barcode)};${esc(p.Nama_Produk)};${esc(p.Supplier||'-')};${esc(p.Kategori)};${esc(p.Warna)};${esc(p.Satuan)};${esc(p.Harga_Beli)};${esc(p.Harga_Jual)};${esc(p.Stok_Saat_Ini)};${esc(p.Stok_Minimum)};${esc(p.Cabang||'Pusat')}\n`; 
+            }); 
+            fileName = "Data_Master_Produk.csv"; 
+        } 
+        else if(tipe === 'pelanggan') { 
+            if(!state.data.pelanggan || state.data.pelanggan.length === 0) return showInlineNotif('error', 'Data kosong!'); 
+            csv += "ID Pelanggan;Nama Pelanggan;No HP;Grup;Alamat;Poin;Piutang\n"; 
+            state.data.pelanggan.forEach(p => { 
+                if(!p) return;
+                csv += `${esc(p.ID_Pelanggan)};${esc(p.Nama_Pelanggan)};${esc(p.No_HP)};${esc(p.Grup_Pelanggan)};${esc(p.Alamat)};${esc(p.Poin_Member)};${esc(p.Piutang)}\n`; 
+            }); 
+            fileName = "Data_Pelanggan.csv"; 
+        } 
+        else if(tipe === 'supplier') { 
+            if(!state.data.supplier || state.data.supplier.length === 0) return showInlineNotif('error', 'Data kosong!'); 
+            csv += "ID Supplier;Nama Supplier;Kontak;Alamat;Hutang\n"; 
+            state.data.supplier.forEach(p => { 
+                if(!p) return;
+                let riwayat = state.data.pembelian ? state.data.pembelian.filter(t => t.ID_Supplier === p.ID_Supplier) : []; 
+                let totalHutangReal = 0; 
+                riwayat.forEach(r => { if(r.Status_Bayar === 'HUTANG') totalHutangReal += parseFloat(r.Total_Tagihan || 0); }); 
+                csv += `${esc(p.ID_Supplier)};${esc(p.Nama_Supplier)};${esc(p.Kontak)};${esc(p.Alamat)};${esc(totalHutangReal)}\n`; 
+            }); 
+            fileName = "Data_Supplier.csv"; 
+        } 
+        
+        if(!fileName) return showInlineNotif('error', 'Tipe Ekspor tidak dikenali!');
+
+        // Eksekusi Download
+        let link = document.createElement("a"); 
+        let blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' }); 
+        let url = URL.createObjectURL(blob); 
+        link.setAttribute("href", url); 
+        link.setAttribute("download", fileName); 
+        document.body.appendChild(link); 
+        link.click(); 
+        document.body.removeChild(link); 
+        URL.revokeObjectURL(url); // Bersihkan memori cache URL
+        
+        showInlineNotif('success', 'File Excel (CSV) berhasil didownload!');
+        
+    } catch(e) {
+        console.error("Export Error: ", e);
+        showInlineNotif('error', 'Gagal memproses Export: ' + e.message);
+    }
+}
 
 // ====================================================================
 // VIEW & FUNGSI: KEUANGAN (ARUS KAS & REKONSILIASI)
