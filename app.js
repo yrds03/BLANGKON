@@ -1760,38 +1760,61 @@ async function prosesImportCSVProduk(event) {
         let successCount = 0;
         let failCount = 0;
 
+        // 1. SMART MAPPING: Baca kepala kolom (Header) agar urutan kolom Excel bisa acak
+        let headers = rows[0].split(/;(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(h => h.replace(/^"|"$/g, '').trim().toLowerCase());
+        let getIdx = (n1, n2) => headers.findIndex(h => h.includes(n1) || (n2 && h.includes(n2)));
+        
+        let iBc = getIdx('barcode', 'imei'); 
+        let iNm = getIdx('nama', 'produk');
+        let iWrn = getIdx('warna');
+        let iKat = getIdx('kategori');
+        let iBel = getIdx('beli', 'modal');
+        let iJua = getIdx('jual', 'harga');
+        let iStk = getIdx('stok_saat', 'stok');
+        let iSat = getIdx('satuan');
+        let iMin = getIdx('min');
+        let iCab = getIdx('cabang');
+        let iSup = getIdx('supplier');
+
         for(let i = 1; i < rows.length; i++) {
-            let cols = rows[i].split(/;(?=(?:(?:[^"]*"){2})*[^"]*$)/);
-            cols = cols.map(c => c.replace(/^"|"$/g, '').trim());
+            let cols = rows[i].split(/;(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(c => c.replace(/^"|"$/g, '').trim());
 
-            if(cols.length < 11) continue; 
-
-            let barcodeVal = cols[1] || "";
-            let namaVal = cols[2] || "";
-
+            // Jika Nama Produk tidak ada, lewati
+            let namaVal = iNm > -1 ? cols[iNm] : cols[2] || "";
             if (!namaVal) continue; 
 
-            if (barcodeVal !== "") {
-                let cekDuplikat = state.data.produk.find(p => String(p.Barcode) === barcodeVal);
+            let barcodeVal = iBc > -1 ? cols[iBc] : cols[1] || "";
+            let isDuplicate = false;
+
+            // 2. VALIDASI SUPER KETAT: Hapus spasi dan tolak mutlak IMEI yang sama
+            if (barcodeVal !== "" && barcodeVal !== "-") {
+                let bCari = String(barcodeVal).toUpperCase().replace(/\s+/g, '');
+                let cekDuplikat = state.data.produk.find(p => String(p.Barcode || "").toUpperCase().replace(/\s+/g, '') === bCari);
+                
+                // JIKA DITEMUKAN IMEI YANG SAMA (WALAUPUN STOK 0 ATAU BEDA CABANG), TOLAK!
                 if (cekDuplikat) {
-                    failCount++;
-                    continue; 
+                    isDuplicate = true;
                 }
+            }
+
+            if (isDuplicate) {
+                failCount++;
+                continue; // LEWATI BARIS INI, JANGAN MASUK KE DATABASE
             }
 
             let obj = {
                 Barcode: barcodeVal,
                 Nama_Produk: namaVal,
-                Supplier: cols[3] || "-",
-                Kategori: cols[4] || "Umum",
-                Warna: cols[5] || "",
-                Satuan: cols[6] || "Pcs",
-                Harga_Beli: parseAngka(cols[7] || "0"),
-                Harga_Jual: parseAngka(cols[8] || "0"),
+                Supplier: iSup > -1 ? cols[iSup] : "-",
+                Kategori: iKat > -1 ? cols[iKat] : "Umum",
+                Warna: iWrn > -1 ? cols[iWrn] : "",
+                Satuan: iSat > -1 ? cols[iSat] : "Pcs",
+                Harga_Beli: parseAngka(iBel > -1 ? cols[iBel] : "0"),
+                Harga_Jual: parseAngka(iJua > -1 ? cols[iJua] : "0"),
                 Diskon: 0,
-                Stok_Saat_Ini: parseFloat(cols[9]) || 0,
-                Stok_Minimum: parseFloat(cols[10]) || 0,
-                Cabang: cols[11] || state.cabang
+                Stok_Saat_Ini: parseFloat(iStk > -1 ? cols[iStk] : 0) || 0,
+                Stok_Minimum: parseFloat(iMin > -1 ? cols[iMin] : 0) || 0,
+                Cabang: iCab > -1 && cols[iCab] ? cols[iCab] : state.cabang
             };
 
             let res = await requestAPIWithAuth('crudDataMaster', {modul: 'Produk', action: 'CREATE', key: 'ID_Produk', id: '', obj: obj});
@@ -1814,12 +1837,17 @@ async function prosesImportCSVProduk(event) {
         }
 
         event.target.value = ''; 
-        showInlineNotif(failCount === 0 ? 'success' : 'info', `Import CSV Selesai! Berhasil: ${successCount}, Ditolak/Duplikat: ${failCount}`);
+        
+        // Memunculkan pesan hasil Import
+        if (failCount > 0) {
+            showInlineNotif('info', `Import Selesai! Berhasil: ${successCount}, DITOLAK (IMEI Duplikat): ${failCount}`);
+        } else {
+            showInlineNotif('success', `Import Sukses! ${successCount} produk baru ditambahkan.`);
+        }
         syncDataLiveBackground(); 
     };
     reader.readAsText(file);
 }
-
 // ====================================================================
 // VIEW & FUNGSI: KELOLA STOK
 // ====================================================================
@@ -2125,7 +2153,30 @@ function filterStokUI() {
                 
                 let idLabel = g.Products.length > 1 ? `<span class="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-[10px] font-black">${g.Products.length} UNIT/IMEI</span>` : `<span class="text-xs">${g.Products[0].ID_Produk}</span>`;
 
-                hO += `<tr class="hover:bg-slate-50 transition"><td class="p-4 pl-6 text-slate-500">${idLabel}</td><td class="p-4 text-slate-800 font-bold truncate max-w-[200px]">${g.Nama_Produk}<br><span class="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded border border-blue-100 uppercase mt-1 inline-block"><i class="fa-solid fa-store mr-1"></i>${g.Cabang}</span></td><td class="p-4 text-center font-black text-blue-600 text-lg" id="op-sys-${idx}">${g.Stok_Saat_Ini}</td><td class="p-4 text-center"><input type="number" id="op-fisik-${idx}" value="${g.Stok_Saat_Ini}" onkeyup="hitungSelisih('${idx}')" onchange="hitungSelisih('${idx}')" class="w-24 border border-slate-300 p-2.5 rounded-xl font-black text-center outline-none focus:border-orange-500 bg-orange-50 text-orange-700 shadow-inner"></td><td class="p-4 text-center font-black text-slate-400 text-lg" id="op-selisih-${idx}">0</td><td class="p-4 pr-6"><input type="text" id="op-ket-${idx}" placeholder="Aman / Rusak" class="w-full border border-slate-200 p-2.5 rounded-xl text-xs font-bold outline-none focus:border-orange-500 bg-slate-50"></td></tr>`; 
+                // --- TAMBAHAN: RENDER IMEI DAN WARNA UNTUK OPNAME ---
+                let detailImeiWarna = "";
+                if(g.Products.length > 0) {
+                    detailImeiWarna = `<div class="mt-2 flex flex-wrap gap-1">`;
+                    g.Products.forEach(p => {
+                        let imei = p.Barcode && p.Barcode !== '-' ? p.Barcode : p.ID_Produk;
+                        let warna = p.Warna && p.Warna !== '-' ? ` | ${p.Warna}` : '';
+                        detailImeiWarna += `<span class="text-[9px] bg-white border border-slate-200 text-slate-600 px-1.5 py-0.5 rounded font-mono shadow-sm whitespace-nowrap"><i class="fa-solid fa-mobile-screen-button text-slate-400 mr-1"></i>${imei}${warna}</span>`;
+                    });
+                    detailImeiWarna += `</div>`;
+                }
+
+                hO += `<tr class="hover:bg-slate-50 transition">
+                    <td class="p-4 pl-6 text-slate-500 align-top pt-5">${idLabel}</td>
+                    <td class="p-4 text-slate-800 font-bold whitespace-normal align-top">
+                        <p class="mb-1">${g.Nama_Produk}</p>
+                        <span class="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded border border-blue-100 uppercase inline-block"><i class="fa-solid fa-store mr-1"></i>${g.Cabang}</span>
+                        ${detailImeiWarna}
+                    </td>
+                    <td class="p-4 text-center font-black text-blue-600 text-xl align-top pt-5" id="op-sys-${idx}">${g.Stok_Saat_Ini}</td>
+                    <td class="p-4 text-center align-top pt-3"><input type="number" id="op-fisik-${idx}" value="${g.Stok_Saat_Ini}" onkeyup="hitungSelisih('${idx}')" onchange="hitungSelisih('${idx}')" class="w-24 border border-slate-300 p-2.5 rounded-xl font-black text-center outline-none focus:border-orange-500 bg-orange-50 text-orange-700 shadow-inner"></td>
+                    <td class="p-4 text-center font-black text-slate-400 text-xl align-top pt-5" id="op-selisih-${idx}">0</td>
+                    <td class="p-4 pr-6 align-top pt-3"><input type="text" id="op-ket-${idx}" placeholder="Aman / Rusak" class="w-full border border-slate-200 p-2.5 rounded-xl text-xs font-bold outline-none focus:border-orange-500 bg-slate-50"></td>
+                </tr>`; 
             });
         }
     } 
@@ -2256,12 +2307,13 @@ function cetakFormOpname() {
         h2 { text-align: center; margin-bottom: 5px; text-transform: uppercase; font-size: 16px; }
         .info { margin-bottom: 15px; font-size: 12px; display: flex; justify-content: space-between; border-bottom: 2px solid #000; padding-bottom: 10px; }
         table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-        th, td { border: 1px solid #000; padding: 6px; text-align: left; vertical-align: middle; }
+        th, td { border: 1px solid #000; padding: 6px; text-align: left; vertical-align: top; }
         th { background-color: #f1f5f9; font-weight: bold; text-align: center; }
         .group-header { background-color: #e2e8f0; font-weight: bold; text-align: left; font-size: 12px; }
         .ttd-container { display: table; width: 100%; margin-top: 30px; }
         .ttd-box { display: table-cell; width: 33%; text-align: center; font-size: 12px; }
         .line { border-bottom: 1px solid #000; display: inline-block; width: 150px; margin-top: 50px; }
+        .sn-box { display: inline-block; border: 1px solid #ccc; padding: 2px 4px; border-radius: 3px; margin: 2px; font-family: monospace; font-size: 9px; background-color: #fafafa; }
     </style></head><body>`;
     
     html += `<h2>FORM KERTAS KERJA STOK OPNAME FISIK</h2>`;
@@ -2273,7 +2325,7 @@ function cetakFormOpname() {
     html += `<table><thead><tr>
         <th width="5%">No</th>
         <th width="12%">Jml Unit/IMEI</th>
-        <th width="38%">Nama Produk & Satuan</th>
+        <th width="38%">Nama Produk & Rincian IMEI</th>
         <th width="10%">Total Sistem</th>
         <th width="15%">Total Fisik Aktual</th>
         <th width="20%">Catatan Selisih</th>
@@ -2294,10 +2346,24 @@ function cetakFormOpname() {
         
         let idLabel = g.Products.length > 1 ? `<b>${g.Products.length} Unit</b>` : `<span style="font-size:9px;">${g.Products[0].ID_Produk}</span>`;
 
+        // --- TAMBAHAN: PRINT IMEI ---
+        let detailKertas = "";
+        if(g.Products.length > 0) {
+            g.Products.forEach(p => {
+                let imei = p.Barcode && p.Barcode !== '-' ? p.Barcode : p.ID_Produk;
+                let warna = p.Warna && p.Warna !== '-' ? ` (${p.Warna})` : '';
+                detailKertas += `<span class="sn-box">${imei}${warna}</span>`;
+            });
+        }
+
         html += `<tr>
             <td style="text-align:center;">${no++}</td>
             <td style="text-align:center;">${idLabel}</td>
-            <td><b>${g.Nama_Produk}</b><br><span style="font-size:9px; color:#555;">Satuan: ${g.Satuan}</span></td>
+            <td>
+                <b>${g.Nama_Produk}</b><br>
+                <span style="font-size:9px; color:#555;">Satuan: ${g.Satuan}</span><br>
+                <div style="margin-top:4px;">${detailKertas}</div>
+            </td>
             <td style="text-align:center; font-weight:bold; font-size:14px;">${g.Stok_Saat_Ini}</td>
             <td></td>
             <td></td>
