@@ -1760,21 +1760,20 @@ async function prosesImportCSVProduk(event) {
         let successCount = 0;
         let failCount = 0;
 
-        // 1. SMART MAPPING: Baca kepala kolom (Header) agar urutan kolom Excel bisa acak
+        // 1. SMART MAPPING (DIPERBAIKI: Agar tidak tertukar antara ID Produk dan Nama Produk)
         let headers = rows[0].split(/;(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(h => h.replace(/^"|"$/g, '').trim().toLowerCase());
-        let getIdx = (n1, n2) => headers.findIndex(h => h.includes(n1) || (n2 && h.includes(n2)));
         
-        let iBc = getIdx('barcode', 'imei'); 
-        let iNm = getIdx('nama', 'produk');
-        let iWrn = getIdx('warna');
-        let iKat = getIdx('kategori');
-        let iBel = getIdx('beli', 'modal');
-        let iJua = getIdx('jual', 'harga');
-        let iStk = getIdx('stok_saat', 'stok');
-        let iSat = getIdx('satuan');
-        let iMin = getIdx('min');
-        let iCab = getIdx('cabang');
-        let iSup = getIdx('supplier');
+        let iBc = headers.findIndex(h => h.includes('barcode') || h.includes('imei'));
+        let iNm = headers.findIndex(h => h.includes('nama')); // Hanya nyari yang ada kata "nama"
+        let iWrn = headers.findIndex(h => h.includes('warna'));
+        let iKat = headers.findIndex(h => h.includes('kategori'));
+        let iBel = headers.findIndex(h => h.includes('beli') || h.includes('modal'));
+        let iJua = headers.findIndex(h => h.includes('jual')); // Hanya nyari yang ada kata "jual"
+        let iStk = headers.findIndex(h => h.includes('stok') && !h.includes('min'));
+        let iSat = headers.findIndex(h => h.includes('satuan'));
+        let iMin = headers.findIndex(h => h.includes('min'));
+        let iCab = headers.findIndex(h => h.includes('cabang'));
+        let iSup = headers.findIndex(h => h.includes('supplier'));
 
         for(let i = 1; i < rows.length; i++) {
             let cols = rows[i].split(/;(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(c => c.replace(/^"|"$/g, '').trim());
