@@ -2933,17 +2933,20 @@ function viewLaporan() {
       </div>
       <div class="bg-slate-50 p-5 rounded-2xl border border-slate-200 mb-6 shadow-sm">
           <div class="flex flex-wrap gap-4 items-end mb-4">
-             ${filterCabangHtml}
-             <div><label class="text-[10px] font-bold text-slate-500 uppercase">Dari Tanggal</label><br><input type="date" id="lap-start" onchange="renderChartLaporan()" class="border border-slate-300 p-2.5 rounded-lg mt-1 font-bold outline-none bg-white focus:border-blue-500 min-w-[160px]"></div>
-             <div><label class="text-[10px] font-bold text-slate-500 uppercase">Sampai Tanggal</label><br><input type="date" id="lap-end" onchange="renderChartLaporan()" class="border border-slate-300 p-2.5 rounded-lg mt-1 font-bold outline-none bg-white focus:border-blue-500 min-w-[160px]"></div>
-             <button onclick="renderChartLaporan()" class="bg-blue-600 hover:bg-blue-700 transition text-white px-6 py-2.5 rounded-lg font-black shadow-md"><i class="fa-solid fa-filter mr-2"></i> Terapkan Filter</button>
+              ${filterCabangHtml}
+              <div><label class="text-[10px] font-bold text-slate-500 uppercase">Dari Tanggal</label><br><input type="date" id="lap-start" onchange="renderChartLaporan()" class="border border-slate-300 p-2.5 rounded-lg mt-1 font-bold outline-none bg-white focus:border-blue-500 min-w-[160px]"></div>
+              <div><label class="text-[10px] font-bold text-slate-500 uppercase">Sampai Tanggal</label><br><input type="date" id="lap-end" onchange="renderChartLaporan()" class="border border-slate-300 p-2.5 rounded-lg mt-1 font-bold outline-none bg-white focus:border-blue-500 min-w-[160px]"></div>
+              <button onclick="renderChartLaporan()" class="bg-blue-600 hover:bg-blue-700 transition text-white px-6 py-2.5 rounded-lg font-black shadow-md"><i class="fa-solid fa-filter mr-2"></i> Terapkan Filter</button>
           </div>
       </div>
       <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6"> 
         <div class="bg-white border-l-4 border-blue-500 p-5 rounded-xl shadow-sm"><p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Total Omset (Range)</p><p class="text-xl md:text-2xl font-black text-slate-800 truncate" id="lap-omset">Rp 0</p></div> 
         <div class="bg-white border-l-4 border-emerald-500 p-5 rounded-xl shadow-sm"><p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Laba Kotor (Range)</p><p class="text-xl md:text-2xl font-black text-emerald-600 truncate" id="lap-laba-kotor">Rp 0</p></div> 
         <div class="bg-white border-l-4 border-purple-500 p-5 rounded-xl shadow-sm"><p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Laba Bersih (Range)</p><p class="text-xl md:text-2xl font-black text-purple-600 truncate" id="lap-laba-bersih">Rp 0</p></div> 
-        <div class="bg-slate-900 border-l-4 border-orange-500 p-5 rounded-xl shadow-md"><p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Saldo Kasir Aktual</p><p class="text-xl md:text-2xl font-black text-orange-400 truncate" id="lap-kas">Rp 0</p></div> 
+        
+        <!-- INI SUDAH DIGANTI MENJADI RANGE -->
+        <div class="bg-slate-900 border-l-4 border-orange-500 p-5 rounded-xl shadow-md"><p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Kas Bersih (Range)</p><p class="text-xl md:text-2xl font-black text-orange-400 truncate" id="lap-kas">Rp 0</p></div> 
+      
       </div> 
       <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm mb-6">
           <h4 class="font-black text-slate-800 mb-4 border-b pb-3"><i class="fa-solid fa-tags text-cyan-500 mr-2"></i>Rincian Penjualan per Kategori (Lunas)</h4>
@@ -3064,13 +3067,16 @@ function renderChartLaporan() {
           let kCab = String(k.Cabang || 'Pusat').toUpperCase().trim();
           let passCab = (filterCab === 'SEMUA' || kCab === filterCab);
           
-          if(passCab) {
+          let parts = String(k.Waktu).substring(0, 10).split('-'); 
+          let wkt = new Date(parts[0], parts[1]-1, parts[2], 12, 0, 0); 
+          let passDate = (wkt >= startD && wkt <= endD);
+
+          // PERBAIKAN: HANYA MENGHITUNG KAS BERDASARKAN FILTER TANGGAL
+          if(passCab && passDate) {
               let nom = parseFloat(k.Nominal||0); 
               if(k.Jenis_Arus === 'PEMASUKAN') kasMasukTotal += nom; else kasKeluarTotal += nom; 
               
-              let parts = String(k.Waktu).substring(0, 10).split('-'); 
-              let wkt = new Date(parts[0], parts[1]-1, parts[2], 12, 0, 0); 
-              if (wkt >= startD && wkt <= endD && k.Jenis_Arus === 'PENGELUARAN' && !String(k.Keterangan).includes('PO ') && !String(k.Keterangan).includes('Pembelian') && !String(k.Keterangan).includes('Retur')) {
+              if (k.Jenis_Arus === 'PENGELUARAN' && !String(k.Keterangan).includes('PO ') && !String(k.Keterangan).includes('Pembelian') && !String(k.Keterangan).includes('Retur')) {
                   pengeluaranRange += nom;
               }
           }
