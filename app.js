@@ -3064,14 +3064,27 @@ function renderChartLaporan() {
   let kasMasukTotal = 0; let kasKeluarTotal = 0;
   if(state.data.keuangan) { 
       state.data.keuangan.forEach(k => { 
-          let kCab = String(k.Cabang || 'Pusat').toUpperCase().trim();
+          // SMART DETECT CABANG JIKA DARI BACKEND KOSONG
+          let rawCabang = k.Cabang;
+          if(!rawCabang || rawCabang === '-' || rawCabang === '') {
+              if(k.ID_Transaksi) {
+                  let refPj = state.data.penjualan.find(x => x.ID_Invoice === k.ID_Transaksi);
+                  if(refPj) rawCabang = refPj.Cabang;
+                  else {
+                      let refPo = state.data.pembelian ? state.data.pembelian.find(x => x.ID_PO === k.ID_Transaksi) : null;
+                      if(refPo) rawCabang = refPo.Cabang;
+                  }
+              }
+          }
+
+          let kCab = String(rawCabang || 'Pusat').toUpperCase().trim();
           let passCab = (filterCab === 'SEMUA' || kCab === filterCab);
           
           let parts = String(k.Waktu).substring(0, 10).split('-'); 
           let wkt = new Date(parts[0], parts[1]-1, parts[2], 12, 0, 0); 
           let passDate = (wkt >= startD && wkt <= endD);
 
-          // PERBAIKAN: HANYA MENGHITUNG KAS BERDASARKAN FILTER TANGGAL
+          // HANYA MENGHITUNG KAS BERDASARKAN FILTER TANGGAL DAN CABANG
           if(passCab && passDate) {
               let nom = parseFloat(k.Nominal||0); 
               if(k.Jenis_Arus === 'PEMASUKAN') kasMasukTotal += nom; else kasKeluarTotal += nom; 
@@ -3359,7 +3372,20 @@ function filterKeuanganUI() {
         html = `<tr><td colspan="5" class="p-10 text-center text-slate-400 font-bold">Belum ada riwayat transaksi keuangan.</td></tr>`; 
     } else { 
         let filteredData = state.data.keuangan.filter(t => {
-            let tCab = String(t.Cabang || 'Pusat').toUpperCase().trim();
+            // SMART DETECT CABANG: Jika dari backend Cabang kosong, cocokkan dari Invoice Penjualan/PO
+            let rawCabang = t.Cabang;
+            if(!rawCabang || rawCabang === '-' || rawCabang === '') {
+                if(t.ID_Transaksi) {
+                    let refPj = state.data.penjualan.find(x => x.ID_Invoice === t.ID_Transaksi);
+                    if(refPj) rawCabang = refPj.Cabang;
+                    else {
+                        let refPo = state.data.pembelian ? state.data.pembelian.find(x => x.ID_PO === t.ID_Transaksi) : null;
+                        if(refPo) rawCabang = refPo.Cabang;
+                    }
+                }
+            }
+            
+            let tCab = String(rawCabang || 'Pusat').toUpperCase().trim();
             let passCab = (filterCab === 'SEMUA' || tCab === filterCab);
             
             let rawDate = String(t.Waktu).substring(0, 10);
@@ -3380,6 +3406,20 @@ function filterKeuanganUI() {
              html = `<tr><td colspan="5" class="p-10 text-center text-slate-400 font-bold">Tidak ada data pada filter ini.</td></tr>`; 
         } else { 
             filteredData.slice().reverse().forEach(t => { 
+                // Render visual cabang
+                let rawCabang = t.Cabang;
+                if(!rawCabang || rawCabang === '-' || rawCabang === '') {
+                    if(t.ID_Transaksi) {
+                        let refPj = state.data.penjualan.find(x => x.ID_Invoice === t.ID_Transaksi);
+                        if(refPj) rawCabang = refPj.Cabang;
+                        else {
+                            let refPo = state.data.pembelian ? state.data.pembelian.find(x => x.ID_PO === t.ID_Transaksi) : null;
+                            if(refPo) rawCabang = refPo.Cabang;
+                        }
+                    }
+                }
+                let tCabRender = rawCabang || 'Pusat';
+
                 let isMasuk = t.Jenis_Arus === 'PEMASUKAN'; 
                 let nom = parseFloat(t.Nominal)||0; 
                 if(isMasuk) masuk += nom; else keluar += nom; 
@@ -3387,7 +3427,7 @@ function filterKeuanganUI() {
                     <td class="p-4 pl-6 text-xs text-slate-400 font-bold">${String(t.Waktu).substring(0,16)}</td>
                     <td class="p-4 text-xs font-mono text-blue-600 font-bold cursor-pointer hover:underline" onclick="navigator.clipboard.writeText('${t.ID_Transaksi}'); showInlineNotif('info', 'ID Transaksi ${t.ID_Transaksi} disalin!')" title="Klik untuk Salin ID Transaksi">${t.ID_Transaksi}</td>
                     <td class="p-4"><span class="${isMasuk?'text-emerald-600 bg-emerald-50 border-emerald-200':'text-red-600 bg-red-50 border-red-200'} px-2 py-1 rounded text-[10px] font-black border uppercase">${t.Jenis_Arus}</span></td>
-                    <td class="p-4 text-xs text-slate-700">${t.Keterangan} <span class="text-[10px] text-slate-400 block font-normal mt-0.5">Kasir: ${t.Kasir||'-'} (${t.Cabang||'Pusat'})</span></td>
+                    <td class="p-4 text-xs text-slate-700">${t.Keterangan} <span class="text-[10px] text-slate-400 block font-normal mt-0.5">Kasir: ${t.Kasir||'-'} (${tCabRender})</span></td>
                     <td class="p-4 pr-6 text-right font-black ${isMasuk?'text-emerald-600':'text-red-500'}">${isMasuk?'+':'-'} ${formatRp(nom)}</td>
                 </tr>`; 
             }); 
