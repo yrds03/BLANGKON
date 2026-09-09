@@ -613,7 +613,6 @@ function renderChartDasbor() { let canvas = document.getElementById('dashChart')
 function viewPOS() { 
     let rawMetode = JSON.parse(localStorage.getItem('sanstech_list-metode') || '["Tunai", "QRIS", "Transfer", "Kredit"]');
     
-    // --- FITUR BARU: FILTER ANTI DUPLIKAT (HURUF BESAR / KECIL) ---
     let savedMetode = [];
     let seenMetode = new Set();
     rawMetode.forEach(m => {
@@ -624,36 +623,23 @@ function viewPOS() {
         }
     });
 
-    // Pastikan 3 metode utama selalu ada (Cek dengan huruf besar semua agar tidak dobel)
     let upperMetode = savedMetode.map(m => m.toUpperCase().trim());
     if(!upperMetode.includes("TUNAI")) savedMetode.unshift("Tunai"); 
     if(!upperMetode.includes("QRIS")) savedMetode.push("QRIS"); 
     if(!upperMetode.includes("TRANSFER")) savedMetode.push("Transfer"); 
     
     let btnMetodeHtml = "";
-    let optMetode1Html = "";
-    let optMetode2Html = "";
+    let optMetodeAllHtml = ""; // PERBAIKAN: Semua metode digabung
     
     savedMetode.forEach(m => {
         let safeId = m.replace(/[^a-zA-Z0-9]/g, '_'); 
         let activeClass = (state.metodeBayar === m) ? "border-blue-600 bg-blue-50 text-blue-700" : "border-slate-100 text-slate-500";
         
         btnMetodeHtml += `<button onclick="pilihMetodePOS('${m}')" id="btn-m-${safeId}" class="btn-metode-pos py-2.5 rounded-lg border-2 ${activeClass} font-bold text-xs transition uppercase">${m}</button>`;
-        
-        // FILTER DROPDOWN: Pisahkan Tunai/Transfer/QRIS ke Dropdown 1, sisanya ke Dropdown 2
-        let mUp = m.toUpperCase().trim();
-        if(mUp === 'TUNAI' || mUp === 'TRANSFER' || mUp === 'QRIS') {
-            optMetode1Html += `<option value="${m}">${m}</option>`;
-        } else {
-            optMetode2Html += `<option value="${m}">${m}</option>`;
-        }
+        optMetodeAllHtml += `<option value="${m}">${m}</option>`; // Semua metode masuk ke dropdown
     });
 
-    if(optMetode2Html === "") {
-        optMetode2Html = `<option value="">-- Tambah Leasing di Data Master --</option>`;
-    }
-
-    state.isSplitPayment = false; // Reset Split State
+    state.isSplitPayment = false;
 
     return `
     <div class="flex flex-col lg:flex-row gap-4 h-full"> 
@@ -673,7 +659,6 @@ function viewPOS() {
             <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col h-full relative"> 
                 <p class="text-[10px] font-bold text-slate-400 mb-1">PILIH PELANGGAN</p> 
                 
-                <!-- CUSTOM SEARCHABLE DROPDOWN PELANGGAN -->
                 <div class="relative mb-6">
                     <div id="pos-plg-overlay" class="hidden fixed inset-0 z-30" onclick="togglePlgDropdown()"></div>
                     <input type="hidden" id="pos-pelanggan" value="UMUM">
@@ -711,21 +696,20 @@ function viewPOS() {
                     ${btnMetodeHtml}
                 </div> 
 
-                <!-- TAMBAHAN: SPLIT PAYMENT LEASING/GABUNGAN -->
                 <label class="flex items-center gap-2 mb-4 cursor-pointer p-2.5 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 transition shadow-sm">
                     <input type="checkbox" id="pos-is-split" onchange="toggleSplitPayment(this.checked)" class="w-4 h-4 rounded text-blue-600">
                     <span class="text-xs font-black text-slate-700">Split Payment / Leasing (2 Metode)</span>
                 </label>
 
                 <div id="area-split-payment" class="hidden mb-4 p-3.5 bg-blue-50 border border-blue-200 rounded-xl space-y-3 shadow-inner">
-                    <p class="text-[10px] font-black text-blue-800 uppercase tracking-widest border-b border-blue-200 pb-1">Pembayaran 1 (Tunai / TF / QRIS)</p>
+                    <p class="text-[10px] font-black text-blue-800 uppercase tracking-widest border-b border-blue-200 pb-1">Pembayaran 1</p>
                     <div class="flex gap-2 items-center">
-                        <select id="split-m1" class="w-1/2 border border-blue-300 p-2.5 rounded-lg font-bold text-xs outline-none bg-white focus:border-blue-500">${optMetode1Html}</select>
+                        <select id="split-m1" class="w-1/2 border border-blue-300 p-2.5 rounded-lg font-bold text-xs outline-none bg-white focus:border-blue-500">${optMetodeAllHtml}</select>
                         <input type="text" inputmode="numeric" id="split-n1" onkeyup="formatInputRibuan(this); hitungSplitPOS()" placeholder="Rp Nominal 1" class="w-1/2 border border-blue-300 p-2.5 rounded-lg font-black text-xs text-right outline-none bg-white focus:border-blue-500">
                     </div>
-                    <p class="text-[10px] font-black text-blue-800 uppercase tracking-widest border-b border-blue-200 pb-1 mt-2">Pembayaran 2 (Khusus Leasing)</p>
+                    <p class="text-[10px] font-black text-blue-800 uppercase tracking-widest border-b border-blue-200 pb-1 mt-2">Pembayaran 2 (Leasing/Lainnya)</p>
                     <div class="flex gap-2 items-center">
-                        <select id="split-m2" class="w-1/2 border border-blue-300 p-2.5 rounded-lg font-bold text-xs outline-none bg-white focus:border-blue-500">${optMetode2Html}</select>
+                        <select id="split-m2" class="w-1/2 border border-blue-300 p-2.5 rounded-lg font-bold text-xs outline-none bg-white focus:border-blue-500">${optMetodeAllHtml}</select>
                         <input type="text" inputmode="numeric" id="split-n2" onkeyup="formatInputRibuan(this); hitungSplitPOS()" placeholder="Rp Nominal 2" class="w-1/2 border border-blue-300 p-2.5 rounded-lg font-black text-xs text-right outline-none bg-white focus:border-blue-500">
                     </div>
                     <p id="split-err" class="hidden text-[10px] text-red-500 font-bold bg-red-100 p-1.5 rounded mt-2 text-center border border-red-200"></p>
@@ -746,7 +730,6 @@ function viewPOS() {
     </div> 
     <div id="modal-cari-pos" class="fixed inset-0 bg-black/60 z-50 hidden items-center justify-center p-4"><div class="bg-white rounded-2xl w-full max-w-lg h-[80vh] flex flex-col overflow-hidden shadow-2xl"><div class="p-4 border-b flex justify-between items-center"><h3 class="font-black text-lg">Pilih Produk</h3><button onclick="document.getElementById('modal-cari-pos').classList.add('hidden')" class="text-red-500"><i class="fa-solid fa-xmark text-xl"></i></button></div><div class="p-4"><input type="text" id="pos-cari-input" onkeyup="renderListCariPOS()" class="w-full border p-3 rounded-xl font-bold bg-slate-50 outline-none focus:border-blue-500" placeholder="Ketik nama produk..."></div><div id="pos-hasil-cari" class="flex-1 overflow-y-auto p-2 space-y-2"></div></div></div> `; 
 }
-
 function toggleSplitPayment(isChecked) {
     state.isSplitPayment = isChecked;
     if(isChecked) {
@@ -1490,7 +1473,7 @@ function viewProduk() {
           <div id="prd-inline-notif" class="hidden"></div>
           <input type="hidden" id="prd-action"><input type="hidden" id="prd-id">
           <div class="grid grid-cols-1 md:grid-cols-6 gap-4 mb-5">
-              <div class="md:col-span-2"><label class="text-[10px] font-bold text-slate-500 uppercase">Barcode / IMEI</label><div class="flex gap-2"><input type="text" id="prd-bc" class="w-full border border-slate-200 p-2.5 rounded-lg font-bold outline-none focus:border-blue-500 bg-white"><button onclick="bukaKamera('produk')" class="bg-blue-600 text-white px-3 rounded-lg hover:bg-blue-700 transition"><i class="fa-solid fa-camera"></i></button></div></div>
+              <div class="md:col-span-2"><label class="text-[10px] font-bold text-slate-500 uppercase">Barcode / IMEI</label><div class="flex gap-2"><textarea id="prd-bc" rows="1" class="w-full border border-slate-200 p-2.5 rounded-lg font-bold outline-none focus:border-blue-500 bg-white resize-y" placeholder="Bisa scan multi IMEI (Enter)"></textarea><button onclick="bukaKamera('produk')" class="bg-blue-600 text-white px-3 rounded-lg hover:bg-blue-700 transition h-auto"><i class="fa-solid fa-camera"></i></button></div></div>
               <div class="md:col-span-2"><label class="text-[10px] font-bold text-slate-500 uppercase">Nama Produk</label><input type="text" id="prd-nm" class="w-full border border-slate-200 p-2.5 rounded-lg font-bold outline-none focus:border-blue-500 bg-white"></div>
               <div class="md:col-span-2"><label class="text-[10px] font-bold text-slate-500 uppercase">Supplier Asal</label><select id="prd-sup" class="w-full border border-slate-200 p-2.5 rounded-lg font-bold outline-none focus:border-blue-500 bg-white">${opsiSupplierHtml}</select></div>
               <div class="md:col-span-2"><label class="text-[10px] font-bold text-slate-500 uppercase">Kategori</label><select id="prd-kat" class="w-full border border-slate-200 p-2.5 rounded-lg font-bold outline-none focus:border-blue-500 bg-white">${opsiKatHtml}</select></div>
@@ -1661,48 +1644,71 @@ async function simpanFormProduk() {
     try {
         let act = document.getElementById('prd-action').value; 
         let cbg = document.getElementById('prd-cabang') ? document.getElementById('prd-cabang').value : state.cabang; 
-        let barcodeVal = document.getElementById('prd-bc').value.trim(); 
+        let barcodeRaw = document.getElementById('prd-bc').value.trim(); 
         let idPrd = document.getElementById('prd-id').value;
         let supVal = document.getElementById('prd-sup') ? document.getElementById('prd-sup').value : "-";
 
-        // VALIDASI DOUBLE IMEI KETAT (Abaikan Spasi & Huruf Besar Kecil)
-        if (barcodeVal !== "") {
-            let bCari = barcodeVal.toUpperCase().replace(/\s+/g, '');
-            let cekDuplikat = state.data.produk.find(p => String(p.Barcode || "").toUpperCase().replace(/\s+/g, '') === bCari);
-            
-            if (cekDuplikat && (act === 'CREATE' || (act === 'UPDATE' && cekDuplikat.ID_Produk !== idPrd))) {
-                let statusStok = parseFloat(cekDuplikat.Stok_Saat_Ini) <= 0 ? "(Sudah Terjual/Habis)" : "(Masih Ada di Gudang: " + (cekDuplikat.Cabang || 'Pusat') + ")";
-                let e = document.getElementById('prd-inline-notif'); 
-                e.innerHTML = `<i class="fa-solid fa-triangle-exclamation text-lg mb-1 block"></i> GAGAL! IMEI/Barcode <b>${barcodeVal}</b> sudah terdaftar di sistem pada produk:<br><b>${cekDuplikat.Nama_Produk}</b> ${statusStok}.`; 
-                e.className = "text-xs font-bold p-4 rounded-xl mb-4 bg-red-50 text-red-600 border border-red-200 block text-center"; e.classList.remove('hidden'); return; 
+        // PERBAIKAN: Support Multi-IMEI dipisah dengan Enter atau Koma
+        let barcodes = barcodeRaw === "" ? [""] : barcodeRaw.split(/[\n,]+/).map(b => b.trim()).filter(b => b);
+
+        if (act === 'UPDATE' && barcodes.length > 1) {
+            let e = document.getElementById('prd-inline-notif'); 
+            e.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> Mode EDIT hanya bisa mengubah 1 IMEI!`; 
+            e.className = "text-xs font-bold p-3 rounded-lg mb-4 bg-red-50 text-red-500 border border-red-100 block"; e.classList.remove('hidden'); return;
+        }
+
+        // VALIDASI DOUBLE IMEI KETAT UNTUK SEMUA IMEI SEKALIGUS
+        for (let bCari of barcodes) {
+            if (bCari !== "" && bCari !== "-") {
+                let bClean = bCari.toUpperCase().replace(/\s+/g, '');
+                let cekDuplikat = state.data.produk.find(p => String(p.Barcode || "").toUpperCase().replace(/\s+/g, '') === bClean);
+                
+                if (cekDuplikat && (act === 'CREATE' || (act === 'UPDATE' && cekDuplikat.ID_Produk !== idPrd))) {
+                    let statusStok = parseFloat(cekDuplikat.Stok_Saat_Ini) <= 0 ? "(Sudah Terjual/Habis)" : "(Gudang: " + (cekDuplikat.Cabang || 'Pusat') + ")";
+                    let e = document.getElementById('prd-inline-notif'); 
+                    e.innerHTML = `<i class="fa-solid fa-triangle-exclamation text-lg mb-1 block"></i> GAGAL! IMEI <b>${bCari}</b> sudah terdaftar pada produk:<br><b>${cekDuplikat.Nama_Produk}</b> ${statusStok}.`; 
+                    e.className = "text-xs font-bold p-4 rounded-xl mb-4 bg-red-50 text-red-600 border border-red-200 block text-center"; e.classList.remove('hidden'); return; 
+                }
             }
         }
         
-        let obj = { 
-            Barcode: barcodeVal, 
-            Nama_Produk: document.getElementById('prd-nm').value, 
-            Supplier: supVal,
-            Kategori: document.getElementById('prd-kat').value, 
-            Warna: document.getElementById('prd-warna').value, 
-            Harga_Beli: parseAngka(document.getElementById('prd-beli').value), 
-            Harga_Jual: parseAngka(document.getElementById('prd-jual').value), 
-            Diskon: 0, 
-            Stok_Saat_Ini: document.getElementById('prd-stok').value, 
-            Stok_Minimum: document.getElementById('prd-minstok').value, 
-            Satuan: document.getElementById('prd-sat').value, 
-            Cabang: cbg 
-        }; 
-
-        if(!obj.Nama_Produk || !obj.Harga_Jual) { let e=document.getElementById('prd-inline-notif'); e.innerText="Nama Produk dan Harga Jual Wajib Diisi!"; e.className="text-xs font-bold p-3 rounded-lg mb-4 bg-red-50 text-red-500 border border-red-100 block"; e.classList.remove('hidden'); return; } 
+        if(!document.getElementById('prd-nm').value || !document.getElementById('prd-jual').value) { let e=document.getElementById('prd-inline-notif'); e.innerText="Nama Produk dan Harga Jual Wajib Diisi!"; e.className="text-xs font-bold p-3 rounded-lg mb-4 bg-red-50 text-red-500 border border-red-100 block"; e.classList.remove('hidden'); return; } 
         let btn = document.getElementById('btn-submit-prd'); btn.innerText = "Memproses..."; btn.disabled = true; 
         
-        let res = await requestAPIWithAuth('crudDataMaster', {modul: 'Produk', action: act, key: 'ID_Produk', id: idPrd, obj: obj});
-        
-        if(res.status) { 
+        let successCount = 0;
+        let lastMsg = "";
+
+        // PROSES SIMPAN (BISA LOOPING KALAU BANYAK IMEI)
+        for (let bCari of barcodes) {
+            let obj = { 
+                Barcode: bCari, 
+                Nama_Produk: document.getElementById('prd-nm').value, 
+                Supplier: supVal,
+                Kategori: document.getElementById('prd-kat').value, 
+                Warna: document.getElementById('prd-warna').value, 
+                Harga_Beli: parseAngka(document.getElementById('prd-beli').value), 
+                Harga_Jual: parseAngka(document.getElementById('prd-jual').value), 
+                Diskon: 0, 
+                Stok_Saat_Ini: document.getElementById('prd-stok').value, 
+                Stok_Minimum: document.getElementById('prd-minstok').value, 
+                Satuan: document.getElementById('prd-sat').value, 
+                Cabang: cbg 
+            }; 
+            
+            let res = await requestAPIWithAuth('crudDataMaster', {modul: 'Produk', action: act, key: 'ID_Produk', id: idPrd, obj: obj});
+            if(res.status) { 
+                successCount++;
+            } else { 
+                lastMsg = res.msg;
+            }
+        }
+
+        if(successCount > 0) { 
             document.getElementById('form-wrap-produk').classList.add('hidden'); 
-            syncDataLiveBackground(); showInlineNotif('success', 'Data Master Produk berhasil disimpan!');
+            syncDataLiveBackground(); 
+            showInlineNotif('success', `Berhasil menyimpan ${successCount} data produk!`);
         } else { 
-            let e=document.getElementById('prd-inline-notif'); e.innerText=res.msg; e.className="text-xs font-bold p-3 rounded-lg mb-4 bg-red-50 text-red-500 border border-red-100 block"; e.classList.remove('hidden'); 
+            let e=document.getElementById('prd-inline-notif'); e.innerText = lastMsg || "Gagal menyimpan data!"; e.className="text-xs font-bold p-3 rounded-lg mb-4 bg-red-50 text-red-500 border border-red-100 block"; e.classList.remove('hidden'); 
         } 
         btn.innerText = "Simpan Data"; btn.disabled = false; 
     } catch(e) { console.error(e); }
@@ -2126,12 +2132,25 @@ function filterStokUI() {
         let opK = document.getElementById('opname-filter-kat') ? document.getElementById('opname-filter-kat').value : 'SEMUA';
         let opS = document.getElementById('opname-search') ? document.getElementById('opname-search').value.toLowerCase().trim() : '';
 
-        // Saring array yang SUDAH DIGRUP khusus untuk Opname
-        let opnameGroups = groupedArr.filter(g => {
+        // PERBAIKAN: Saring array yang SUDAH DIGRUP khusus untuk Opname, HANYA YANG STOK > 0
+        let opnameGroups = [];
+        groupedArr.forEach(g => {
             let kat = String(g.Kategori || "LAINNYA").toUpperCase();
             let passOpKat = (opK === 'SEMUA' || kat === opK);
             let passOpSearch = (opS === '' || String(g.Nama_Produk).toLowerCase().includes(opS));
-            return passOpKat && passOpSearch;
+            
+            if(passOpKat && passOpSearch) {
+                // HANYA MASUKKAN IMEI YANG BELUM TERJUAL (Stok Sistem > 0)
+                let activeProducts = g.Products.filter(p => parseFloat(p.Stok_Saat_Ini) > 0);
+                if(activeProducts.length > 0) {
+                    let opGroup = {
+                        ...g, 
+                        Products: activeProducts, 
+                        Stok_Saat_Ini: activeProducts.reduce((sum, p) => sum + parseFloat(p.Stok_Saat_Ini || 0), 0)
+                    };
+                    opnameGroups.push(opGroup);
+                }
+            }
         });
 
         state.tempOpnameGroup = opnameGroups; // Simpan di memori untuk proses Simpan Massal & Print
