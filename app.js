@@ -1432,7 +1432,6 @@ function viewProduk() {
   let listKat = JSON.parse(localStorage.getItem('sanstech_list-kat') || '["Umum"]');
   let opsiKatHtml = ""; listKat.forEach(k => opsiKatHtml += `<option value="${k}">${k}</option>`);
   
-  // --- TAMBAHAN: AMBIL DATA MASTER SATUAN ---
   let listSatuan = JSON.parse(localStorage.getItem('sanstech_list-satuan') || '["Pcs", "Unit"]');
   let opsiSatuanHtml = ""; listSatuan.forEach(s => opsiSatuanHtml += `<option value="${s}">${s}</option>`);
   
@@ -1463,6 +1462,9 @@ function viewProduk() {
           </div>
 
           <div class="flex items-center gap-2">
+              <!-- TOMBOL HAPUS MASSAL -->
+              <button id="btn-bulk-delete-prd" onclick="konfirmasiHapusMassal()" class="hidden bg-red-50 text-red-600 hover:bg-red-500 hover:text-white font-bold px-4 py-2.5 rounded-xl shadow-sm transition text-sm items-center admin-only"><i class="fa-solid fa-trash mr-2"></i> Hapus (<span id="count-bulk-prd">0</span>)</button>
+
               <button onclick="triggerImportProduk()" class="bg-indigo-50 text-indigo-600 hover:bg-indigo-500 hover:text-white font-bold p-2.5 rounded-xl shadow-sm transition admin-only" title="Import CSV (Bulk Upload)"><i class="fa-solid fa-file-import"></i></button>
               <button onclick="exportDataCSV('produk')" class="bg-emerald-50 text-emerald-600 hover:bg-emerald-500 hover:text-white font-bold p-2.5 rounded-xl shadow-sm transition" title="Export Excel"><i class="fa-solid fa-file-excel"></i></button>
               <button onclick="bukaFormProduk(false)" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-5 py-2.5 rounded-xl shadow-md transition text-sm flex items-center admin-only"><i class="fa-solid fa-plus mr-2"></i> Produk Baru</button>
@@ -1479,7 +1481,6 @@ function viewProduk() {
               <div class="md:col-span-2"><label class="text-[10px] font-bold text-slate-500 uppercase">Kategori</label><select id="prd-kat" class="w-full border border-slate-200 p-2.5 rounded-lg font-bold outline-none focus:border-blue-500 bg-white">${opsiKatHtml}</select></div>
               <div class="md:col-span-2"><label class="text-[10px] font-bold text-slate-500 uppercase">Warna (Opsional)</label><input type="text" id="prd-warna" class="w-full border border-slate-200 p-2.5 rounded-lg font-bold outline-none focus:border-blue-500 bg-white" placeholder="Contoh: Hitam"></div>
               
-              <!-- DI SINI DIUBAH MENJADI DROPDOWN -->
               <div class="md:col-span-2"><label class="text-[10px] font-bold text-slate-500 uppercase">Satuan</label><select id="prd-sat" class="w-full border border-slate-200 p-2.5 rounded-lg font-bold outline-none focus:border-blue-500 bg-white">${opsiSatuanHtml}</select></div>
               
               <div class="admin-only md:col-span-2"><label class="text-[10px] font-bold text-slate-500 uppercase">Harga Beli (Modal)</label><input type="text" inputmode="numeric" onkeyup="formatInputRibuan(this)" id="prd-beli" class="w-full border border-slate-200 p-2.5 rounded-lg font-bold outline-none focus:border-blue-500 bg-white"></div>
@@ -1499,7 +1500,14 @@ function viewProduk() {
       <div class="flex-1 overflow-auto rounded-xl border border-slate-200 bg-white">
           <table class="w-full text-left min-w-[900px]">
               <thead class="bg-slate-100 text-[10px] text-slate-500 font-black uppercase tracking-wider sticky top-0 shadow-sm z-10">
-                  <tr><th class="p-4 pl-6">ID & Barcode</th><th class="p-4">Nama, Kategori & Lokasi</th><th class="p-4 admin-only">Modal / Jual</th><th class="p-4">Stok & Min</th><th class="p-4 pr-6 text-center admin-only">Aksi</th></tr>
+                  <tr>
+                      <th class="p-4 pl-4 w-10 text-center admin-only"><input type="checkbox" id="cb-check-all-prd" onchange="toggleCheckAllPrd(this.checked)" class="w-4 h-4 cursor-pointer"></th>
+                      <th class="p-4">ID & Barcode</th>
+                      <th class="p-4">Nama, Kategori & Lokasi</th>
+                      <th class="p-4 admin-only">Modal / Jual</th>
+                      <th class="p-4">Stok & Min</th>
+                      <th class="p-4 pr-6 text-center admin-only">Aksi</th>
+                  </tr>
               </thead>
               <tbody id="tabel-produk-ui" class="divide-y divide-slate-100 text-sm font-bold text-slate-700"></tbody>
           </table>
@@ -1519,15 +1527,17 @@ function filterProdukUI() {
     let html = ""; 
 
     if(!state.data.produk || state.data.produk.length === 0) { 
-        html = `<tr><td colspan="5" class="p-10 text-center text-slate-400 font-bold">Data Kosong.</td></tr>`; 
+        html = `<tr><td colspan="6" class="p-10 text-center text-slate-400 font-bold">Data Kosong.</td></tr>`; 
     } else { 
         let filteredProd = state.data.produk.filter(p => {
+            // SEMBUNYIKAN BARANG YANG STOKNYA 0 ATAU HABIS DARI LAYAR
+            if(parseFloat(p.Stok_Saat_Ini) <= 0) return false;
+
             let rawCabang = p.Cabang || 'Pusat';
             let pCabang = String(rawCabang).toUpperCase().trim();
             if (roleNorm !== 'SUPERADMIN' && pCabang !== myCab) return false;
             if (roleNorm === 'SUPERADMIN' && fCab !== 'SEMUA' && pCabang !== fCab) return false;
             
-            // Pencarian text
             if(searchVal) {
                 let nm = String(p.Nama_Produk||"").toLowerCase();
                 let bc = String(p.Barcode||"").toLowerCase();
@@ -1537,7 +1547,7 @@ function filterProdukUI() {
         });
 
         if(filteredProd.length === 0) {
-            html = `<tr><td colspan="5" class="p-10 text-center text-slate-400 font-bold">Produk tidak ditemukan.</td></tr>`;
+            html = `<tr><td colspan="6" class="p-10 text-center text-slate-400 font-bold">Produk tidak ditemukan.</td></tr>`;
         } else {
             filteredProd.forEach(p => { 
                 let rawCabang = p.Cabang || 'Pusat';
@@ -1548,7 +1558,8 @@ function filterProdukUI() {
                 let supHtml = p.Supplier && p.Supplier !== '-' ? `<span class="text-[10px] bg-yellow-50 text-yellow-700 px-2 py-0.5 rounded font-bold border border-yellow-200"><i class="fa-solid fa-truck-fast mr-1"></i>${p.Supplier}</span>` : '';
                 
                 html += `<tr class="hover:bg-slate-50 transition">
-                    <td class="p-4 pl-6"><p class="text-xs font-bold text-blue-600">${p.ID_Produk}</p><p class="text-[10px] font-mono text-slate-400">${p.Barcode||'-'}</p></td>
+                    <td class="p-4 pl-4 text-center admin-only"><input type="checkbox" class="cb-prd-item w-4 h-4 cursor-pointer" value="${p.ID_Produk}" onchange="checkPrdItem()"></td>
+                    <td class="p-4"><p class="text-xs font-bold text-blue-600">${p.ID_Produk}</p><p class="text-[10px] font-mono text-slate-400">${p.Barcode||'-'}</p></td>
                     <td class="p-4"><p class="font-bold text-slate-800">${p.Nama_Produk}</p><div class="mt-1 flex flex-wrap gap-1"><span class="text-[10px] bg-slate-100 px-2 py-0.5 rounded text-slate-600 border border-slate-200"><i class="fa-solid fa-tag mr-1 text-slate-400"></i>${p.Kategori}</span> ${warnaHtml} ${supHtml} <span class="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded font-bold border border-blue-100 uppercase"><i class="fa-solid fa-location-dot mr-1"></i>${rawCabang}</span></div></td>
                     <td class="p-4 admin-only"><p class="text-[10px] text-slate-400 font-bold">B: ${formatRp(p.Harga_Beli)}</p><p class="text-sm text-slate-800 font-black mt-0.5">J: ${formatRp(p.Harga_Jual)}</p></td>
                     <td class="p-4"><span class="${stClass}">${p.Stok_Saat_Ini} <span class="text-[10px] font-bold text-slate-400 uppercase">${p.Satuan}</span></span><p class="text-[10px] text-slate-400 mt-1 font-bold">Min Stok: ${p.Stok_Minimum || 0}</p></td>
@@ -1561,7 +1572,14 @@ function filterProdukUI() {
         }
     } 
     let el = document.getElementById('tabel-produk-ui'); 
-    if(el) { el.innerHTML = html; document.querySelectorAll('.admin-only').forEach(e => { e.style.display = (String(state.role).toUpperCase().replace(/\s+/g, '') === 'KASIR') ? 'none' : ''; }); }
+    if(el) { 
+        el.innerHTML = html; 
+        document.querySelectorAll('.admin-only').forEach(e => { e.style.display = (String(state.role).toUpperCase().replace(/\s+/g, '') === 'KASIR') ? 'none' : ''; }); 
+    }
+    
+    let cbAll = document.getElementById('cb-check-all-prd');
+    if(cbAll) cbAll.checked = false;
+    checkPrdItem();
 }
 function bukaFormProduk(isEdit, idProduk) { 
     try {
@@ -1582,7 +1600,6 @@ function bukaFormProduk(isEdit, idProduk) {
         let opsiKatHtml = ""; listKat.forEach(k => opsiKatHtml += `<option value="${k}">${k}</option>`);
         if(document.getElementById('prd-kat')) document.getElementById('prd-kat').innerHTML = opsiKatHtml;
         
-        // --- SINKRONISASI SATUAN SAAT BUKA FORM ---
         let listSatuan = JSON.parse(localStorage.getItem('sanstech_list-satuan') || '["Pcs", "Unit"]');
         let opsiSatuanHtml = ""; listSatuan.forEach(s => opsiSatuanHtml += `<option value="${s}">${s}</option>`);
         if(document.getElementById('prd-sat')) document.getElementById('prd-sat').innerHTML = opsiSatuanHtml;
@@ -1597,11 +1614,8 @@ function bukaFormProduk(isEdit, idProduk) {
 
         if(!isEdit) { 
             document.getElementById('prd-title').innerText = "Tambah Produk Baru"; document.getElementById('prd-action').value = "CREATE"; 
-            
-            // Catatan: 'prd-sat' dihapus dari array clear agar dropdown tidak jadi blank, melainkan kembali ke default
             ['prd-id','prd-bc','prd-nm','prd-warna','prd-beli','prd-jual','prd-stok'].forEach(id => { let el = document.getElementById(id); if(el) el.value = ""; }); 
             if(listSatuan.length > 0 && document.getElementById('prd-sat')) document.getElementById('prd-sat').value = listSatuan[0];
-            
             document.getElementById('prd-minstok').value = "0"; 
             document.getElementById('prd-stok').readOnly = false; 
             if(document.getElementById('prd-cabang')) document.getElementById('prd-cabang').value = state.cabang || "Pusat"; 
@@ -1615,22 +1629,14 @@ function bukaFormProduk(isEdit, idProduk) {
             document.getElementById('prd-nm').value = p.Nama_Produk || ""; 
             if(!listKat.includes(p.Kategori)) document.getElementById('prd-kat').innerHTML += `<option value="${p.Kategori}">${p.Kategori}</option>`;
             document.getElementById('prd-kat').value = p.Kategori || ""; 
-            
-            // --- JIKA SATUAN DI DATABASE LAMA TIDAK ADA DI LIST, TAMBAHKAN OTOMATIS KE DROPDOWN ---
             if(p.Satuan && !listSatuan.includes(p.Satuan)) document.getElementById('prd-sat').innerHTML += `<option value="${p.Satuan}">${p.Satuan}</option>`;
             document.getElementById('prd-sat').value = p.Satuan || listSatuan[0];
-
             document.getElementById('prd-warna').value = p.Warna || "";
             document.getElementById('prd-beli').value = p.Harga_Beli ? parseInt(p.Harga_Beli).toLocaleString('id-ID') : ""; document.getElementById('prd-jual').value = p.Harga_Jual ? parseInt(p.Harga_Jual).toLocaleString('id-ID') : ""; 
             document.getElementById('prd-minstok').value = p.Stok_Minimum || "0"; 
             document.getElementById('prd-stok').value = p.Stok_Saat_Ini || ""; 
             document.getElementById('prd-stok').readOnly = true; 
-            
-            if(document.getElementById('prd-sup')) {
-                let sVal = p.Supplier || "-";
-                document.getElementById('prd-sup').value = sVal;
-            }
-
+            if(document.getElementById('prd-sup')) { document.getElementById('prd-sup').value = p.Supplier || "-"; }
             if(document.getElementById('prd-cabang')) {
                 let cbVal = p.Cabang || "Pusat";
                 if(!savedCabang.includes(cbVal)) document.getElementById('prd-cabang').innerHTML += `<option value="${cbVal}">${cbVal}</option>`;
@@ -1648,7 +1654,6 @@ async function simpanFormProduk() {
         let idPrd = document.getElementById('prd-id').value;
         let supVal = document.getElementById('prd-sup') ? document.getElementById('prd-sup').value : "-";
 
-        // PERBAIKAN: Support Multi-IMEI dipisah dengan Enter atau Koma
         let barcodes = barcodeRaw === "" ? [""] : barcodeRaw.split(/[\n,]+/).map(b => b.trim()).filter(b => b);
 
         if (act === 'UPDATE' && barcodes.length > 1) {
@@ -1657,7 +1662,7 @@ async function simpanFormProduk() {
             e.className = "text-xs font-bold p-3 rounded-lg mb-4 bg-red-50 text-red-500 border border-red-100 block"; e.classList.remove('hidden'); return;
         }
 
-        // VALIDASI DOUBLE IMEI KETAT UNTUK SEMUA IMEI SEKALIGUS
+        // VALIDASI DOUBLE IMEI
         for (let bCari of barcodes) {
             if (bCari !== "" && bCari !== "-") {
                 let bClean = bCari.toUpperCase().replace(/\s+/g, '');
@@ -1678,8 +1683,10 @@ async function simpanFormProduk() {
         let successCount = 0;
         let lastMsg = "";
 
-        // PROSES SIMPAN (BISA LOOPING KALAU BANYAK IMEI)
         for (let bCari of barcodes) {
+            let isImei = bCari !== "" && bCari !== "-";
+            let qtyFisik = isImei ? 1 : (parseFloat(document.getElementById('prd-stok').value) || 0);
+
             let obj = { 
                 Barcode: bCari, 
                 Nama_Produk: document.getElementById('prd-nm').value, 
@@ -1689,7 +1696,7 @@ async function simpanFormProduk() {
                 Harga_Beli: parseAngka(document.getElementById('prd-beli').value), 
                 Harga_Jual: parseAngka(document.getElementById('prd-jual').value), 
                 Diskon: 0, 
-                Stok_Saat_Ini: document.getElementById('prd-stok').value, 
+                Stok_Saat_Ini: qtyFisik, 
                 Stok_Minimum: document.getElementById('prd-minstok').value, 
                 Satuan: document.getElementById('prd-sat').value, 
                 Cabang: cbg 
@@ -1713,6 +1720,7 @@ async function simpanFormProduk() {
         btn.innerText = "Simpan Data"; btn.disabled = false; 
     } catch(e) { console.error(e); }
 }
+
 let deleteIdTemp = "";
 function konfirmasiHapusProduk(id) {
     deleteIdTemp = id;
@@ -1729,129 +1737,88 @@ async function eksekusiHapusProduk() {
     }
 }
 
-function triggerImportProduk() {
-    let fileInput = document.getElementById('input-import-csv');
-    if(!fileInput) {
-        fileInput = document.createElement('input');
-        fileInput.type = 'file';
-        fileInput.id = 'input-import-csv';
-        fileInput.accept = '.csv';
-        fileInput.style.display = 'none';
-        fileInput.onchange = prosesImportCSVProduk;
-        document.body.appendChild(fileInput);
-    }
-    fileInput.click();
+// LOGIKA BARU: HAPUS MASSAL PRODUK
+function toggleCheckAllPrd(isChecked) {
+    let cbs = document.querySelectorAll('.cb-prd-item');
+    cbs.forEach(cb => { cb.checked = isChecked; });
+    checkPrdItem();
 }
 
-async function prosesImportCSVProduk(event) {
-    let file = event.target.files[0];
-    if(!file) return;
+function checkPrdItem() {
+    let cbs = document.querySelectorAll('.cb-prd-item');
+    let checkedCbs = document.querySelectorAll('.cb-prd-item:checked');
+    let btnBulk = document.getElementById('btn-bulk-delete-prd');
+    let cbAll = document.getElementById('cb-check-all-prd');
+    let countSpan = document.getElementById('count-bulk-prd');
+    
+    if(!btnBulk || !cbAll) return;
+    
+    if(checkedCbs.length > 0) {
+        btnBulk.classList.replace('hidden', 'flex');
+        countSpan.innerText = checkedCbs.length;
+    } else {
+        btnBulk.classList.replace('flex', 'hidden');
+        countSpan.innerText = "0";
+    }
+    
+    if(cbs.length > 0 && cbs.length === checkedCbs.length) {
+        cbAll.checked = true;
+    } else {
+        cbAll.checked = false;
+    }
+}
 
-    let reader = new FileReader();
-    reader.onload = async function(e) {
-        let text = e.target.result;
-        let rows = text.split('\n').map(row => row.trim()).filter(row => row);
-        if(rows.length < 2) {
-            showInlineNotif('error', 'File CSV kosong atau format salah!');
-            return;
-        }
+let tempBulkDeleteIds = [];
+function konfirmasiHapusMassal() {
+    let checkedCbs = document.querySelectorAll('.cb-prd-item:checked');
+    if(checkedCbs.length === 0) return;
+    
+    tempBulkDeleteIds = Array.from(checkedCbs).map(cb => cb.value);
+    bukaModalConfirm("Hapus Massal", `Yakin ingin menghapus ${tempBulkDeleteIds.length} produk sekaligus? Data tidak bisa dikembalikan!`, "hapus", eksekusiHapusMassal);
+}
 
-        let loader = document.getElementById('global-loader');
-        if (loader) {
-            loader.querySelector('p').innerText = "MENGIMPORT DATA...";
-            loader.querySelectorAll('p')[1].innerText = "Memproses baris 1 dari " + (rows.length - 1);
-            loader.classList.replace('hidden', 'flex');
-        }
+async function eksekusiHapusMassal() {
+    if(tempBulkDeleteIds.length === 0) return;
+    
+    let btnBulk = document.getElementById('btn-bulk-delete-prd');
+    let oriHtml = btnBulk.innerHTML;
+    btnBulk.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-2"></i> Menghapus...`;
+    btnBulk.disabled = true;
+    
+    let loader = document.getElementById('global-loader');
+    if (loader) {
+        loader.querySelector('p').innerText = "MENGHAPUS MASSAL...";
+        loader.querySelectorAll('p')[1].innerText = `Menghapus ${tempBulkDeleteIds.length} data, mohon tunggu...`;
+        loader.classList.replace('hidden', 'flex');
+    }
 
-        let successCount = 0;
-        let failCount = 0;
+    let successCount = 0;
+    let failCount = 0;
 
-        // 1. SMART MAPPING (DIPERBAIKI: Agar tidak tertukar antara ID Produk dan Nama Produk)
-        let headers = rows[0].split(/;(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(h => h.replace(/^"|"$/g, '').trim().toLowerCase());
-        
-        let iBc = headers.findIndex(h => h.includes('barcode') || h.includes('imei'));
-        let iNm = headers.findIndex(h => h.includes('nama')); // Hanya nyari yang ada kata "nama"
-        let iWrn = headers.findIndex(h => h.includes('warna'));
-        let iKat = headers.findIndex(h => h.includes('kategori'));
-        let iBel = headers.findIndex(h => h.includes('beli') || h.includes('modal'));
-        let iJua = headers.findIndex(h => h.includes('jual')); // Hanya nyari yang ada kata "jual"
-        let iStk = headers.findIndex(h => h.includes('stok') && !h.includes('min'));
-        let iSat = headers.findIndex(h => h.includes('satuan'));
-        let iMin = headers.findIndex(h => h.includes('min'));
-        let iCab = headers.findIndex(h => h.includes('cabang'));
-        let iSup = headers.findIndex(h => h.includes('supplier'));
-
-        for(let i = 1; i < rows.length; i++) {
-            let cols = rows[i].split(/;(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(c => c.replace(/^"|"$/g, '').trim());
-
-            // Jika Nama Produk tidak ada, lewati
-            let namaVal = iNm > -1 ? cols[iNm] : cols[2] || "";
-            if (!namaVal) continue; 
-
-            let barcodeVal = iBc > -1 ? cols[iBc] : cols[1] || "";
-            let isDuplicate = false;
-
-            // 2. VALIDASI SUPER KETAT: Hapus spasi dan tolak mutlak IMEI yang sama
-            if (barcodeVal !== "" && barcodeVal !== "-") {
-                let bCari = String(barcodeVal).toUpperCase().replace(/\s+/g, '');
-                let cekDuplikat = state.data.produk.find(p => String(p.Barcode || "").toUpperCase().replace(/\s+/g, '') === bCari);
-                
-                // JIKA DITEMUKAN IMEI YANG SAMA (WALAUPUN STOK 0 ATAU BEDA CABANG), TOLAK!
-                if (cekDuplikat) {
-                    isDuplicate = true;
-                }
-            }
-
-            if (isDuplicate) {
-                failCount++;
-                continue; // LEWATI BARIS INI, JANGAN MASUK KE DATABASE
-            }
-
-            let obj = {
-                Barcode: barcodeVal,
-                Nama_Produk: namaVal,
-                Supplier: iSup > -1 ? cols[iSup] : "-",
-                Kategori: iKat > -1 ? cols[iKat] : "Umum",
-                Warna: iWrn > -1 ? cols[iWrn] : "",
-                Satuan: iSat > -1 ? cols[iSat] : "Pcs",
-                Harga_Beli: parseAngka(iBel > -1 ? cols[iBel] : "0"),
-                Harga_Jual: parseAngka(iJua > -1 ? cols[iJua] : "0"),
-                Diskon: 0,
-                Stok_Saat_Ini: parseFloat(iStk > -1 ? cols[iStk] : 0) || 0,
-                Stok_Minimum: parseFloat(iMin > -1 ? cols[iMin] : 0) || 0,
-                Cabang: iCab > -1 && cols[iCab] ? cols[iCab] : state.cabang
-            };
-
-            let res = await requestAPIWithAuth('crudDataMaster', {modul: 'Produk', action: 'CREATE', key: 'ID_Produk', id: '', obj: obj});
-            if(res.status) {
-                state.data.produk.push(obj); 
-                successCount++;
-            } else {
-                failCount++;
-            }
-
-            if (loader) {
-                loader.querySelectorAll('p')[1].innerText = `Memproses baris ${i} dari ${rows.length - 1} ...`;
-            }
-        }
-
-        if (loader) {
-            loader.querySelector('p').innerText = "SINKRONISASI...";
-            loader.querySelectorAll('p')[1].innerText = "Menyimpan & Menarik Data Terbaru";
-            loader.classList.replace('flex', 'hidden');
-        }
-
-        event.target.value = ''; 
-        
-        // Memunculkan pesan hasil Import
-        if (failCount > 0) {
-            showInlineNotif('info', `Import Selesai! Berhasil: ${successCount}, DITOLAK (IMEI Duplikat): ${failCount}`);
+    for(let i = 0; i < tempBulkDeleteIds.length; i++) {
+        let id = tempBulkDeleteIds[i];
+        let res = await requestAPIWithAuth('crudDataMaster', {modul: 'Produk', action: 'DELETE', key: 'ID_Produk', id: id, obj: {}});
+        if(res.status) {
+            state.data.produk = state.data.produk.filter(p => p.ID_Produk !== id);
+            successCount++;
         } else {
-            showInlineNotif('success', `Import Sukses! ${successCount} produk baru ditambahkan.`);
+            failCount++;
         }
-        syncDataLiveBackground(); 
-    };
-    reader.readAsText(file);
+        
+        if (loader) {
+            loader.querySelectorAll('p')[1].innerText = `Proses ${i+1} dari ${tempBulkDeleteIds.length}...`;
+        }
+    }
+    
+    if (loader) loader.classList.replace('flex', 'hidden');
+    btnBulk.innerHTML = oriHtml;
+    btnBulk.disabled = false;
+    tempBulkDeleteIds = [];
+    
+    showInlineNotif('success', `Hapus massal selesai! Berhasil: ${successCount}`);
+    
+    syncDataLiveBackground(); 
+    filterProdukUI(); 
 }
 // ====================================================================
 // VIEW & FUNGSI: KELOLA STOK
@@ -2068,18 +2035,24 @@ function filterStokUI() {
     let hS = "", hM = "", hO = ""; 
 
     if(state.data.produk && state.data.produk.length > 0) { 
-        // 1. Filter Cabang Global Dulu
+        // 1. Filter Cabang Global & Sembunyikan Stok 0
         let filteredProd = state.data.produk.filter(p => {
+            // PERBAIKAN 3: SEMBUNYIKAN STOK 0 DARI TABEL PANTAU STOK
+            if(parseFloat(p.Stok_Saat_Ini) <= 0) return false;
+
             let pCabang = String(p.Cabang || 'Pusat').toUpperCase().trim();
             if (roleNorm !== 'SUPERADMIN') return pCabang === myCab;
             if (fCab !== 'SEMUA') return pCabang === fCab;
             return true;
         });
 
-        // 2. PROSES GROUPING (Sihir Gabung Barang Berdasarkan Nama)
+        // 2. PROSES GROUPING
         let groupedObj = {};
         filteredProd.forEach(p => {
-            let nameKey = String(p.Nama_Produk).trim().toUpperCase();
+            let pCabang = String(p.Cabang || 'Pusat').trim().toUpperCase();
+            // PERBAIKAN 1: NAMA PRODUK DIGABUNG DENGAN CABANG (Agar Beda Toko Beda Baris)
+            let nameKey = String(p.Nama_Produk).trim().toUpperCase() + "_" + pCabang; 
+            
             if(!groupedObj[nameKey]) {
                 groupedObj[nameKey] = {
                     Nama_Produk: p.Nama_Produk,
@@ -2088,7 +2061,7 @@ function filterStokUI() {
                     Satuan: p.Satuan,
                     Stok_Saat_Ini: 0,
                     Stok_Minimum: 0,
-                    Products: [] // Menyimpan rincian IMEI di dalamnya
+                    Products: [] 
                 };
             }
             groupedObj[nameKey].Stok_Saat_Ini += parseFloat(p.Stok_Saat_Ini) || 0;
@@ -2122,17 +2095,15 @@ function filterStokUI() {
                 currentKatS = kat;
             }
             
-            // Ubah ID menjadi Label QTY jika lebih dari 1
             let idLabel = g.Products.length > 1 ? `<span class="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-[10px] font-black">${g.Products.length} UNIT/IMEI</span>` : `<span class="text-xs">${g.Products[0].ID_Produk}</span>`;
 
             hS += `<tr class="hover:bg-slate-50 transition"><td class="p-4 pl-6 text-slate-500">${idLabel}</td><td class="p-4 text-slate-800 font-bold">${g.Nama_Produk}<br><span class="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded border border-blue-100 uppercase mt-1 inline-block"><i class="fa-solid fa-store mr-1"></i>${g.Cabang}</span></td><td class="p-4"><span class="${stClass} text-lg">${g.Stok_Saat_Ini}</span> <span class="text-[10px] font-bold text-slate-400 uppercase">${g.Satuan||''}</span>${warnIcon}</td></tr>`; 
         }); 
 
-        // 4. Render untuk STOK OPNAME (Punya filter Kategori & Search sendiri)
+        // 4. Render untuk STOK OPNAME
         let opK = document.getElementById('opname-filter-kat') ? document.getElementById('opname-filter-kat').value : 'SEMUA';
         let opS = document.getElementById('opname-search') ? document.getElementById('opname-search').value.toLowerCase().trim() : '';
 
-        // PERBAIKAN: Saring array yang SUDAH DIGRUP khusus untuk Opname, HANYA YANG STOK > 0
         let opnameGroups = [];
         groupedArr.forEach(g => {
             let kat = String(g.Kategori || "LAINNYA").toUpperCase();
@@ -2140,7 +2111,7 @@ function filterStokUI() {
             let passOpSearch = (opS === '' || String(g.Nama_Produk).toLowerCase().includes(opS));
             
             if(passOpKat && passOpSearch) {
-                // HANYA MASUKKAN IMEI YANG BELUM TERJUAL (Stok Sistem > 0)
+                // HANYA MASUKKAN IMEI YANG BELUM TERJUAL (Meskipun filter global sudah, ini double safety)
                 let activeProducts = g.Products.filter(p => parseFloat(p.Stok_Saat_Ini) > 0);
                 if(activeProducts.length > 0) {
                     let opGroup = {
@@ -2153,7 +2124,7 @@ function filterStokUI() {
             }
         });
 
-        state.tempOpnameGroup = opnameGroups; // Simpan di memori untuk proses Simpan Massal & Print
+        state.tempOpnameGroup = opnameGroups; 
         
         let currentKatO = "";
         if(opnameGroups.length === 0) {
@@ -2171,7 +2142,6 @@ function filterStokUI() {
                 
                 let idLabel = g.Products.length > 1 ? `<span class="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-[10px] font-black">${g.Products.length} UNIT/IMEI</span>` : `<span class="text-xs">${g.Products[0].ID_Produk}</span>`;
 
-                // --- TAMBAHAN: RENDER IMEI DAN WARNA UNTUK OPNAME ---
                 let detailImeiWarna = "";
                 if(g.Products.length > 0) {
                     detailImeiWarna = `<div class="mt-2 flex flex-wrap gap-1">`;
@@ -2199,7 +2169,7 @@ function filterStokUI() {
         }
     } 
     
-    // MUTASI STOK (Tetap muncul satu-satu sesuai riwayat pergerakan)
+    // MUTASI STOK
     if(state.data.stok && state.data.stok.length > 0) { 
         state.data.stok.slice().reverse().forEach(m => { 
             let rawCabang = m.Cabang || 'Pusat';
@@ -2215,7 +2185,7 @@ function filterStokUI() {
     let elM = document.getElementById('tabel-mutasi-body'); if(elM) elM.innerHTML = hM || `<tr><td colspan="4" class="p-8 text-center text-slate-400 font-bold">Belum ada mutasi di cabang ini.</td></tr>`; 
     let elO = document.getElementById('tabel-opname-body'); if(elO) elO.innerHTML = hO || `<tr><td colspan="6" class="p-8 text-center text-slate-400 font-bold">Pilih kategori atau tidak ada data yang cocok.</td></tr>`; 
     
-    hitungTotalOpname(); // Kalkulasi grand total setiap filter diubah
+    hitungTotalOpname();
 }
 
 function hitungSelisih(id) { 
