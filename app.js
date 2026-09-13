@@ -629,14 +629,14 @@ function viewPOS() {
     if(!upperMetode.includes("TRANSFER")) savedMetode.push("Transfer"); 
     
     let btnMetodeHtml = "";
-    let optMetodeAllHtml = ""; // PERBAIKAN: Semua metode digabung
+    let optMetodeAllHtml = ""; 
     
     savedMetode.forEach(m => {
         let safeId = m.replace(/[^a-zA-Z0-9]/g, '_'); 
         let activeClass = (state.metodeBayar === m) ? "border-blue-600 bg-blue-50 text-blue-700" : "border-slate-100 text-slate-500";
         
         btnMetodeHtml += `<button onclick="pilihMetodePOS('${m}')" id="btn-m-${safeId}" class="btn-metode-pos py-2.5 rounded-lg border-2 ${activeClass} font-bold text-xs transition uppercase">${m}</button>`;
-        optMetodeAllHtml += `<option value="${m}">${m}</option>`; // Semua metode masuk ke dropdown
+        optMetodeAllHtml += `<option value="${m}">${m}</option>`; 
     });
 
     state.isSplitPayment = false;
@@ -657,8 +657,15 @@ function viewPOS() {
         </div> 
         <div class="w-full lg:w-1/3 flex flex-col gap-4"> 
             <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col h-full relative"> 
-                <p class="text-[10px] font-bold text-slate-400 mb-1">PILIH PELANGGAN</p> 
                 
+                <!-- INPUT SALES BARU -->
+                <p class="text-[10px] font-bold text-slate-400 mb-1">NAMA SALES / PROMOTOR</p> 
+                <div class="relative mb-3">
+                    <i class="fa-solid fa-user-tag absolute left-3 top-3.5 text-slate-400 text-xs"></i>
+                    <input type="text" id="pos-sales" class="w-full border border-slate-200 p-3 pl-8 rounded-xl bg-slate-50 font-bold text-sm outline-none focus:border-blue-500" placeholder="Opsional: Ketik nama sales..." autocomplete="off">
+                </div>
+
+                <p class="text-[10px] font-bold text-slate-400 mb-1">PILIH PELANGGAN</p> 
                 <div class="relative mb-6">
                     <div id="pos-plg-overlay" class="hidden fixed inset-0 z-30" onclick="togglePlgDropdown()"></div>
                     <input type="hidden" id="pos-pelanggan" value="UMUM">
@@ -987,6 +994,7 @@ function tampilkanQrisBayar() { let tot = state.isSO ? state.posTemp.dp : state.
 function resetKasir() { 
     if(document.getElementById('pos-input-diskon')) document.getElementById('pos-input-diskon').value = "0";
     if(document.getElementById('pos-input-dp')) document.getElementById('pos-input-dp').value = "0";
+    if(document.getElementById('pos-sales')) document.getElementById('pos-sales').value = ""; // RESET NAMA SALES
     pilihMetodePOS("Tunai"); 
     if(document.getElementById('pos-is-so')) { document.getElementById('pos-is-so').checked = false; toggleDP(false); } 
     if(document.getElementById('pos-is-split')) { document.getElementById('pos-is-split').checked = false; toggleSplitPayment(false); document.getElementById('split-n1').value = ""; document.getElementById('split-n2').value = ""; }
@@ -1037,6 +1045,11 @@ async function prosesCheckoutPOS() {
     let plgId = document.getElementById('pos-pelanggan').value; 
     let totalNominal = state.posTemp.total_akhir; 
     
+    // TANGKAP NAMA SALES + KASIR
+    let namaSales = document.getElementById('pos-sales') ? document.getElementById('pos-sales').value.trim() : "";
+    let kasirTransaksi = namaSales ? `${state.user} (Sales: ${namaSales})` : state.user;
+    state.posTemp.kasir_cetak = kasirTransaksi; // SIMPAN SEMENTARA UNTUK STRUK
+    
     let finalMetode = state.metodeBayar;
     let marginLeasing = 0;
 
@@ -1057,7 +1070,7 @@ async function prosesCheckoutPOS() {
         
         if(!state.isSO) {
             marginLeasing = totalSplit - totalAsli;
-            totalNominal = totalSplit; // e.g. 2,200,000
+            totalNominal = totalSplit; 
             state.posTemp.admin_leasing = marginLeasing;
         } else {
             state.posTemp.dp = totalSplit;
@@ -1070,7 +1083,8 @@ async function prosesCheckoutPOS() {
 
     let btn = document.getElementById('btn-checkout'); btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> MEMPROSES...'; btn.disabled = true; 
     
-    let payload = { keranjang: state.keranjangPOS, subtotal: state.posTemp.subtotal, diskon: state.posTemp.diskon, pajak: state.posTemp.pajak, total_akhir: totalNominal, metode: finalMetode, id_pelanggan: plgId, kasir: state.user, is_so: state.isSO, dp: state.posTemp.dp, sisa: state.posTemp.sisa, cabang: state.cabang }; 
+    // KIRIM kasirTransaksi KE DATABASE
+    let payload = { keranjang: state.keranjangPOS, subtotal: state.posTemp.subtotal, diskon: state.posTemp.diskon, pajak: state.posTemp.pajak, total_akhir: totalNominal, metode: finalMetode, id_pelanggan: plgId, kasir: kasirTransaksi, is_so: state.isSO, dp: state.posTemp.dp, sisa: state.posTemp.sisa, cabang: state.cabang }; 
     
     let res = await requestAPIWithAuth('prosesTransaksiPOS', payload);
     if(res.status) { 
@@ -1083,7 +1097,7 @@ async function prosesCheckoutPOS() {
 
         let now = new Date(); let localTime = new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().substring(0, 19).replace('T', ' '); 
         
-        state.data.penjualan.push({ ID_Invoice: res.invoice, Waktu: localTime, ID_Pelanggan: plgId || "UMUM", Subtotal: state.posTemp.subtotal, Diskon: state.posTemp.diskon, Pajak: state.posTemp.pajak, Total_Akhir: totalNominal, Metode_Pembayaran: finalMetode, Status: state.isSO ? 'SO/PESANAN' : 'LUNAS', Kasir: state.user, Cabang: state.cabang, DP: state.posTemp.dp, Sisa_Tagihan: state.posTemp.sisa }); 
+        state.data.penjualan.push({ ID_Invoice: res.invoice, Waktu: localTime, ID_Pelanggan: plgId || "UMUM", Subtotal: state.posTemp.subtotal, Diskon: state.posTemp.diskon, Pajak: state.posTemp.pajak, Total_Akhir: totalNominal, Metode_Pembayaran: finalMetode, Status: state.isSO ? 'SO/PESANAN' : 'LUNAS', Kasir: kasirTransaksi, Cabang: state.cabang, DP: state.posTemp.dp, Sisa_Tagihan: state.posTemp.sisa }); 
         state.keranjangPOS.forEach(k => {
             state.data.penjualan_detail.push({
                 ID_Detail: "DET" + Math.floor(Math.random() * 100000), ID_Invoice: res.invoice, ID_Produk: k.id_produk,
@@ -1092,7 +1106,6 @@ async function prosesCheckoutPOS() {
         });
         if(!state.isSO) { state.keranjangPOS.forEach(k => { let idx = state.data.produk.findIndex(p => p.ID_Produk === k.id_produk); if(idx > -1) state.data.produk[idx].Stok_Saat_Ini = parseFloat(state.data.produk[idx].Stok_Saat_Ini) - k.qty; }); } 
         
-        // Kosongkan keranjang di background biar tidak didouble-click
         state.keranjangPOS = []; 
         renderKeranjangPOS();
 
@@ -1111,6 +1124,7 @@ async function jalankanCetakStruk(invoice, totAkhir) {
   let subtotalPrint = tempPrint.subtotal || 0; 
   let diskonPrint = tempPrint.diskon || 0;
   let pajakPrint = tempPrint.pajak || 0;
+  let kasirPrint = tempPrint.kasir_cetak || state.user; // AMBIL NAMA KASIR + SALES
   
   let namaToko = localStorage.getItem('sanstech_nama_toko') || "BLANGKON ERP"; 
   if(state.cabang && String(state.cabang).toUpperCase() !== 'PUSAT') {
@@ -1123,44 +1137,76 @@ async function jalankanCetakStruk(invoice, totAkhir) {
   let namaPelangganPrint = document.getElementById('pos-plg-label') ? document.getElementById('pos-plg-label').innerText : "UMUM";
 
   if (btCharacteristic) {
-      let teks = `\n${namaToko}\n`;
-      if (headerToko) teks += `${headerToko}\n`;
-      teks += `--------------------------------\nINV: ${invoice}\nTgl: ${new Date().toLocaleString('id-ID')}\n--------------------------------\n`;
-      itemsPrint.forEach(i => { teks += `${i.nama}\n${i.qty}x ${i.harga} = ${i.total}\n`; });
-      teks += `--------------------------------\nSubtotal: ${formatRp(subtotalPrint)}\n`;
-      if(diskonPrint > 0) teks += `Diskon: -${formatRp(diskonPrint)}\n`;
-      if(pajakPrint > 0) teks += `Pajak PPN: +${formatRp(pajakPrint)}\n`;
+      // 1. RANGKAI 1 STRUK UNTUK BLUETOOTH
+      let strukSingle = `\n${namaToko}\n`;
+      if (headerToko) strukSingle += `${headerToko}\n`;
+      strukSingle += `--------------------------------\nINV: ${invoice}\nTgl: ${new Date().toLocaleString('id-ID')}\nKasir/Sales: ${kasirPrint}\nPlg: ${namaPelangganPrint}\n--------------------------------\n`;
       
-      // DIUBAH MENJADI DP (UANG MUKA) UNTUK STRUK BLUETOOTH
-      if(tempPrint.admin_leasing > 0) teks += `DP (Uang Muka): +${formatRp(tempPrint.admin_leasing)}\n`;
+      itemsPrint.forEach(i => { 
+          strukSingle += `${i.nama}\n`;
+          let detailK = "";
+          if (i.barcode && i.barcode !== '-') detailK += `IMEI: ${i.barcode} `;
+          if (i.warna && i.warna !== '-') detailK += `(${i.warna})`;
+          if (detailK !== "") strukSingle += `${detailK}\n`;
+          strukSingle += `${i.qty}x ${i.harga} = ${i.total}\n`; 
+      });
       
-      teks += `TOTAL: ${formatRp(totAkhir)}\nBayar: ${metodePrint}\n`;
-      if(soPrint) { teks += `DP Masuk: ${formatRp(tempPrint.dp)}\nSISA HUTANG: ${formatRp(tempPrint.sisa)}\n`; }
-      teks += `--------------------------------\n${footerToko}\n\n\n\n`;
-      let hasil = await cetakStrukBluetooth(teks);
-      if(hasil) showInlineNotif('success', 'Struk Tercetak via Bluetooth!');
+      strukSingle += `--------------------------------\nSubtotal: ${formatRp(subtotalPrint)}\n`;
+      if(diskonPrint > 0) strukSingle += `Diskon: -${formatRp(diskonPrint)}\n`;
+      if(pajakPrint > 0) strukSingle += `Pajak PPN: +${formatRp(pajakPrint)}\n`;
+      if(tempPrint.admin_leasing > 0) strukSingle += `DP (Uang Muka): +${formatRp(tempPrint.admin_leasing)}\n`;
+      strukSingle += `TOTAL: ${formatRp(totAkhir)}\nBayar: ${metodePrint}\n`;
+      if(soPrint) { strukSingle += `DP Masuk: ${formatRp(tempPrint.dp)}\nSISA HUTANG: ${formatRp(tempPrint.sisa)}\n`; }
+      strukSingle += `--------------------------------\n${footerToko}\n\n`;
+
+      // 2. GANDAKAN JADI 2 COPY DENGAN GARIS POTONG
+      let teksGanda = strukSingle + `\n- - - - - (Potong) - - - - -\n\n` + strukSingle + `\n\n\n`;
+
+      let hasil = await cetakStrukBluetooth(teksGanda);
+      if(hasil) showInlineNotif('success', 'Struk (2 Copy) Tercetak via Bluetooth!');
       return; 
   }
+
+  // 1. RANGKAI 1 STRUK UNTUK PRINTER KASIR (A4 / THERMAL USB)
   let iframe = document.getElementById('print-iframe'); 
   let doc = iframe.contentWindow.document; 
   let title = soPrint ? "NOTA PRE-ORDER (PO)" : "Struk Pembayaran"; 
   let alamatToko = localStorage.getItem('sanstech_alamat_toko') || "Sistem ERP Distributor"; 
-  let html = `<html><head><style>@page{margin:0;} body{font-family:monospace; color:black; font-size:11px; width:58mm; padding:2mm; margin:0;} .garis{border-bottom: 1px dashed black; margin: 4px 0;}</style></head><body>`; 
-  html += `<div style="text-align:center;"><b style="font-size:14px;">${namaToko}</b><br>${alamatToko}`; if(headerToko) html += `<br>${headerToko}`; html += `<br><br><b>${title}</b><br><div class="garis"></div></div>`;
-  html += `<div>No: ${invoice}<br>Tgl: ${new Date().toLocaleString('id-ID')}<br>Ksr: ${state.user}<br>Plg: ${namaPelangganPrint}<br></div>`;
-  html += `<div class="garis"></div><table style="width:100%; border-collapse:collapse;">`; 
-  itemsPrint.forEach(i => { html += `<tr><td colspan="3" style="padding-top:2px;"><b>${i.nama}</b></td></tr><tr><td>${i.qty}x</td><td>${i.harga.toLocaleString('id-ID')}</td><td style="text-align:right;">${i.total.toLocaleString('id-ID')}</td></tr>`; }); 
-  html += `</table><div class="garis"></div><div style="text-align:right;">Subtotal: ${formatRp(subtotalPrint)}<br>`;
-  if(diskonPrint > 0) html += `Diskon: -${formatRp(diskonPrint)}<br>`;
-  if(pajakPrint > 0) html += `Pajak PPN: +${formatRp(pajakPrint)}<br>`;
   
-  // DIUBAH MENJADI DP (UANG MUKA) UNTUK CETAK KERTAS PRINTER
-  if(tempPrint.admin_leasing > 0) html += `DP (Uang Muka): +${formatRp(tempPrint.admin_leasing)}<br>`;
+  let htmlSingle = `<div style="text-align:center;"><b style="font-size:14px;">${namaToko}</b><br>${alamatToko}`; 
+  if(headerToko) htmlSingle += `<br>${headerToko}`; 
+  htmlSingle += `<br><br><b>${title}</b><br><div class="garis"></div></div>`;
+  htmlSingle += `<div>No: ${invoice}<br>Tgl: ${new Date().toLocaleString('id-ID')}<br>Kasir/Sales: ${kasirPrint}<br>Plg: ${namaPelangganPrint}<br></div>`;
+  htmlSingle += `<div class="garis"></div><table style="width:100%; border-collapse:collapse;">`; 
   
-  html += `<b>TOTAL: ${formatRp(totAkhir)}</b><br>Bayar: ${metodePrint}<br>`;
-  if(soPrint) { html += `DP Masuk: ${formatRp(tempPrint.dp)}<br><b>SISA TAGIHAN: ${formatRp(tempPrint.sisa)}</b><br>`; }
-  html += `</div><div class="garis"></div><div style="text-align:center; margin-top:10px;">${footerToko}</div></body></html>`; 
-  doc.open(); doc.write(html); doc.close(); 
+  itemsPrint.forEach(i => { 
+      htmlSingle += `<tr><td colspan="3" style="padding-top:4px;"><b>${i.nama}</b></td></tr>`;
+      let detailK = "";
+      if (i.barcode && i.barcode !== '-') detailK += `IMEI: ${i.barcode} `;
+      if (i.warna && i.warna !== '-') detailK += `(${i.warna})`;
+      if (detailK !== "") {
+          htmlSingle += `<tr><td colspan="3" style="font-size:9px; color:#555; padding-bottom:2px;">${detailK}</td></tr>`;
+      }
+      htmlSingle += `<tr><td>${i.qty}x</td><td>${i.harga.toLocaleString('id-ID')}</td><td style="text-align:right;">${i.total.toLocaleString('id-ID')}</td></tr>`; 
+  }); 
+  
+  htmlSingle += `</table><div class="garis"></div><div style="text-align:right;">Subtotal: ${formatRp(subtotalPrint)}<br>`;
+  if(diskonPrint > 0) htmlSingle += `Diskon: -${formatRp(diskonPrint)}<br>`;
+  if(pajakPrint > 0) htmlSingle += `Pajak PPN: +${formatRp(pajakPrint)}<br>`;
+  if(tempPrint.admin_leasing > 0) htmlSingle += `DP (Uang Muka): +${formatRp(tempPrint.admin_leasing)}<br>`;
+  
+  htmlSingle += `<b>TOTAL: ${formatRp(totAkhir)}</b><br>Bayar: ${metodePrint}<br>`;
+  if(soPrint) { htmlSingle += `DP Masuk: ${formatRp(tempPrint.dp)}<br><b>SISA TAGIHAN: ${formatRp(tempPrint.sisa)}</b><br>`; }
+  htmlSingle += `</div><div class="garis"></div><div style="text-align:center; margin-top:10px;">${footerToko}</div>`; 
+
+  // 2. GANDAKAN JADI 2 COPY DENGAN GARIS POTONG
+  let htmlLengkap = `<html><head><style>@page{margin:0;} body{font-family:monospace; color:black; font-size:11px; width:58mm; padding:2mm; margin:0;} .garis{border-bottom: 1px dashed black; margin: 4px 0;} .potong{text-align:center; border-top: 1px dashed #000; border-bottom: 1px dashed #000; margin: 20px 0; padding: 5px 0; font-size: 9px; letter-spacing: 1px;}</style></head><body>`;
+  htmlLengkap += htmlSingle; // Copy 1
+  htmlLengkap += `<div class="potong">- - - - POTONG DI SINI - - - -</div>`;
+  htmlLengkap += htmlSingle; // Copy 2
+  htmlLengkap += `</body></html>`;
+
+  doc.open(); doc.write(htmlLengkap); doc.close(); 
   setTimeout(() => { iframe.contentWindow.focus(); iframe.contentWindow.print(); }, 500); 
 }
 // ====================================================================
@@ -1295,7 +1341,6 @@ function cetakInvoiceRiwayat(inv) {
     let dpPrint = parseFloat(trx.DP || 0);
     let sisaPrint = parseFloat(trx.Sisa_Tagihan || 0);
     
-    // Deteksi jika ada kelebihan uang DP Leasing di riwayat
     let hitungDPLeasing = totAkhir - (subtotalPrint - diskonPrint + pajakPrint);
     
     let namaToko = localStorage.getItem('sanstech_nama_toko') || "BLANGKON ERP"; 
@@ -1306,54 +1351,87 @@ function cetakInvoiceRiwayat(inv) {
     }
     let headerToko = localStorage.getItem('sanstech_struk_header') || ""; 
     let footerToko = localStorage.getItem('sanstech_struk_footer') || "Terima Kasih"; 
+    
     if (btCharacteristic) {
-        let teks = `\n${namaToko}\n`;
-        if (headerToko) teks += `${headerToko}\n`;
-        teks += `--------------------------------\nINV: ${inv}\nTgl: ${String(trx.Waktu).substring(0,16)}\n--------------------------------\n`;
+        // 1. RANGKAI 1 STRUK UNTUK BLUETOOTH
+        let strukSingle = `\n${namaToko}\n`;
+        if (headerToko) strukSingle += `${headerToko}\n`;
+        strukSingle += `--------------------------------\nINV: ${inv}\nTgl: ${String(trx.Waktu).substring(0,16)}\nKasir/Sales: ${trx.Kasir}\nPlg: ${trx.ID_Pelanggan}\n--------------------------------\n`;
+        
         det.forEach(d => { 
             let prd = state.data.produk.find(p => p.ID_Produk === d.ID_Produk); 
             let nm = prd ? prd.Nama_Produk : d.ID_Produk;
-            teks += `${nm}\n${d.Qty}x ${parseFloat(d.Harga_Satuan||0)} = ${parseFloat(d.Total_Harga||0)}\n`; 
+            strukSingle += `${nm}\n`;
+            
+            let detailK = "";
+            if (prd && prd.Barcode && prd.Barcode !== '-') detailK += `IMEI: ${prd.Barcode} `;
+            if (prd && prd.Warna && prd.Warna !== '-') detailK += `(${prd.Warna})`;
+            if (detailK !== "") strukSingle += `${detailK}\n`;
+
+            strukSingle += `${d.Qty}x ${parseFloat(d.Harga_Satuan||0)} = ${parseFloat(d.Total_Harga||0)}\n`; 
         });
-        teks += `--------------------------------\nSubtotal: ${formatRp(subtotalPrint)}\n`;
-        if(diskonPrint > 0) teks += `Diskon: -${formatRp(diskonPrint)}\n`;
-        if(pajakPrint > 0) teks += `Pajak PPN: +${formatRp(pajakPrint)}\n`;
         
-        // MUNCULKAN DP LEASING JIKA ADA (BLUETOOTH)
-        if(hitungDPLeasing > 0) teks += `DP (Uang Muka): +${formatRp(hitungDPLeasing)}\n`;
-        
-        teks += `TOTAL: ${formatRp(totAkhir)}\nBayar: ${trx.Metode_Pembayaran}\n`;
-        if(String(trx.Status).includes('SO')) { teks += `DP Masuk: ${formatRp(dpPrint)}\nSISA HUTANG: ${formatRp(sisaPrint)}\n`; }
-        teks += `--------------------------------\n${footerToko}\n\n\n\n`;
-        cetakStrukBluetooth(teks).then(hasil => { if(hasil) showInlineNotif('success', 'Struk Tercetak via Bluetooth!'); });
+        strukSingle += `--------------------------------\nSubtotal: ${formatRp(subtotalPrint)}\n`;
+        if(diskonPrint > 0) strukSingle += `Diskon: -${formatRp(diskonPrint)}\n`;
+        if(pajakPrint > 0) strukSingle += `Pajak PPN: +${formatRp(pajakPrint)}\n`;
+        if(hitungDPLeasing > 0) strukSingle += `DP (Uang Muka): +${formatRp(hitungDPLeasing)}\n`;
+        strukSingle += `TOTAL: ${formatRp(totAkhir)}\nBayar: ${trx.Metode_Pembayaran}\n`;
+        if(String(trx.Status).includes('SO')) { strukSingle += `DP Masuk: ${formatRp(dpPrint)}\nSISA HUTANG: ${formatRp(sisaPrint)}\n`; }
+        strukSingle += `--------------------------------\n${footerToko}\n\n`;
+
+        // 2. GANDAKAN JADI 2 COPY DENGAN GARIS POTONG
+        let teksGanda = strukSingle + `\n- - - - - (Potong) - - - - -\n\n` + strukSingle + `\n\n\n`;
+
+        cetakStrukBluetooth(teksGanda).then(hasil => { if(hasil) showInlineNotif('success', 'Struk (2 Copy) Tercetak via Bluetooth!'); });
         return; 
     }
+
+    // 1. RANGKAI 1 STRUK UNTUK PRINTER KASIR (A4 / THERMAL USB)
     let iframe = document.getElementById('print-iframe'); 
     let doc = iframe.contentWindow.document; 
     let title = String(trx.Status).includes('SO') ? "NOTA PESANAN (SO)" : "INVOICE PEMBAYARAN"; 
     let alamatToko = localStorage.getItem('sanstech_alamat_toko') || "Sistem ERP Distributor"; 
-    let html = `<html><head><style>@page{margin:0;} body{font-family:monospace; color:black; font-size:11px; width:58mm; padding:2mm; margin:0;} .garis{border-bottom: 1px dashed black; margin: 4px 0;}</style></head><body>`; 
-    html += `<div style="text-align:center;"><b style="font-size:14px;">${namaToko}</b><br>${alamatToko}`; if(headerToko) html += `<br>${headerToko}`; html += `<br><br><b>${title}</b><br><div class="garis"></div></div>`;
-    html += `<div>No: ${inv}<br>Tgl: ${String(trx.Waktu).substring(0,16)}<br>Ksr: ${trx.Kasir}<br>Plg: ${trx.ID_Pelanggan}<br></div>`;
-    html += `<div class="garis"></div><table style="width:100%; border-collapse:collapse;">`; 
+    
+    let htmlSingle = `<div style="text-align:center;"><b style="font-size:14px;">${namaToko}</b><br>${alamatToko}`; 
+    if(headerToko) htmlSingle += `<br>${headerToko}`; 
+    htmlSingle += `<br><br><b>${title}</b><br><div class="garis"></div></div>`;
+    htmlSingle += `<div>No: ${inv}<br>Tgl: ${String(trx.Waktu).substring(0,16)}<br>Kasir/Sales: ${trx.Kasir}<br>Plg: ${trx.ID_Pelanggan}<br></div>`;
+    htmlSingle += `<div class="garis"></div><table style="width:100%; border-collapse:collapse;">`; 
+    
     det.forEach(d => { 
         let prd = state.data.produk.find(p => p.ID_Produk === d.ID_Produk); 
         let nm = prd ? prd.Nama_Produk : d.ID_Produk;
         let harga = parseFloat(d.Harga_Satuan || 0);
         let totalRow = parseFloat(d.Total_Harga || 0);
-        html += `<tr><td colspan="3" style="padding-top:2px;"><b>${nm}</b></td></tr><tr><td>${d.Qty}x</td><td>${harga.toLocaleString('id-ID')}</td><td style="text-align:right;">${totalRow.toLocaleString('id-ID')}</td></tr>`; 
+        
+        htmlSingle += `<tr><td colspan="3" style="padding-top:4px;"><b>${nm}</b></td></tr>`; 
+        
+        let detailK = "";
+        if (prd && prd.Barcode && prd.Barcode !== '-') detailK += `IMEI: ${prd.Barcode} `;
+        if (prd && prd.Warna && prd.Warna !== '-') detailK += `(${prd.Warna})`;
+        if (detailK !== "") {
+            htmlSingle += `<tr><td colspan="3" style="font-size:9px; color:#555; padding-bottom:2px;">${detailK}</td></tr>`;
+        }
+
+        htmlSingle += `<tr><td>${d.Qty}x</td><td>${harga.toLocaleString('id-ID')}</td><td style="text-align:right;">${totalRow.toLocaleString('id-ID')}</td></tr>`; 
     }); 
-    html += `</table><div class="garis"></div><div style="text-align:right;">Subtotal: ${formatRp(subtotalPrint)}<br>`;
-    if(diskonPrint > 0) html += `Diskon: -${formatRp(diskonPrint)}<br>`;
-    if(pajakPrint > 0) html += `Pajak PPN: +${formatRp(pajakPrint)}<br>`;
     
-    // MUNCULKAN DP LEASING JIKA ADA (PRINT A4 / PDF)
-    if(hitungDPLeasing > 0) html += `DP (Uang Muka): +${formatRp(hitungDPLeasing)}<br>`;
-    
-    html += `<b>TOTAL: ${formatRp(totAkhir)}</b><br>Metode: ${trx.Metode_Pembayaran}<br>`;
-    if(String(trx.Status).includes('SO')) { html += `DP Masuk: ${formatRp(dpPrint)}<br><b>SISA TAGIHAN: ${formatRp(sisaPrint)}</b><br>`; }
-    html += `</div><div class="garis"></div><div style="text-align:center; margin-top:10px;">${footerToko}</div></body></html>`; 
-    doc.open(); doc.write(html); doc.close(); 
+    htmlSingle += `</table><div class="garis"></div><div style="text-align:right;">Subtotal: ${formatRp(subtotalPrint)}<br>`;
+    if(diskonPrint > 0) htmlSingle += `Diskon: -${formatRp(diskonPrint)}<br>`;
+    if(pajakPrint > 0) htmlSingle += `Pajak PPN: +${formatRp(pajakPrint)}<br>`;
+    if(hitungDPLeasing > 0) htmlSingle += `DP (Uang Muka): +${formatRp(hitungDPLeasing)}<br>`;
+    htmlSingle += `<b>TOTAL: ${formatRp(totAkhir)}</b><br>Metode: ${trx.Metode_Pembayaran}<br>`;
+    if(String(trx.Status).includes('SO')) { htmlSingle += `DP Masuk: ${formatRp(dpPrint)}<br><b>SISA TAGIHAN: ${formatRp(sisaPrint)}</b><br>`; }
+    htmlSingle += `</div><div class="garis"></div><div style="text-align:center; margin-top:10px;">${footerToko}</div>`; 
+
+    // 2. GANDAKAN JADI 2 COPY DENGAN GARIS POTONG
+    let htmlLengkap = `<html><head><style>@page{margin:0;} body{font-family:monospace; color:black; font-size:11px; width:58mm; padding:2mm; margin:0;} .garis{border-bottom: 1px dashed black; margin: 4px 0;} .potong{text-align:center; border-top: 1px dashed #000; border-bottom: 1px dashed #000; margin: 20px 0; padding: 5px 0; font-size: 9px; letter-spacing: 1px;}</style></head><body>`;
+    htmlLengkap += htmlSingle; // Copy 1
+    htmlLengkap += `<div class="potong">- - - - POTONG DI SINI - - - -</div>`;
+    htmlLengkap += htmlSingle; // Copy 2
+    htmlLengkap += `</body></html>`;
+
+    doc.open(); doc.write(htmlLengkap); doc.close(); 
     setTimeout(() => { iframe.contentWindow.focus(); iframe.contentWindow.print(); }, 500); 
 }
 function tanyaRetur(inv) { bukaModalConfirm("Retur Transaksi", `Yakin meretur invoice ${inv}?`, "retur", function() { eksekusiRetur(inv); }); }
