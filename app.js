@@ -1212,11 +1212,28 @@ async function jalankanCetakStruk(invoice, totAkhir) {
 // ====================================================================
 // VIEW & FUNGSI: PENJUALAN / SO
 // ====================================================================
-function viewPenjualan() { return ` 
+function viewPenjualan() { 
+    let savedCabang = JSON.parse(localStorage.getItem('sanstech_list-gudang') || '["Pusat"]'); 
+    if(!savedCabang.includes("Pusat")) savedCabang.unshift("Pusat");
+    
+    let filterCabangHtml = '';
+    let roleNorm = String(state.role).toUpperCase().replace(/\s+/g, '');
+    if(roleNorm === 'SUPERADMIN') {
+        filterCabangHtml = `<select id="pj-filter-cabang" onchange="filterRiwayat(); renderTabelSO();" class="border border-slate-200 p-2 rounded-lg text-xs font-bold outline-none focus:border-blue-500 bg-white shadow-sm"><option value="SEMUA">Semua Cabang</option>`;
+        savedCabang.forEach(c => { filterCabangHtml += `<option value="${c}">${c}</option>`; });
+        filterCabangHtml += `</select>`;
+    } else {
+        filterCabangHtml = `<input type="hidden" id="pj-filter-cabang" value="${state.cabang}">`;
+    }
+
+    return ` 
 <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col h-full relative"> 
-    <div class="flex justify-between items-center mb-6">
+    <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
         <h3 class="font-black text-lg text-slate-800">Manajemen Penjualan</h3> 
-        <button onclick="exportDataCSV('penjualan')" class="bg-emerald-50 text-emerald-600 hover:bg-emerald-500 hover:text-white font-bold px-4 py-2 rounded-xl shadow-sm transition text-xs flex items-center"><i class="fa-solid fa-file-excel mr-2"></i> Export Data</button>
+        <div class="flex items-center gap-2">
+            ${filterCabangHtml}
+            <button onclick="exportDataCSV('penjualan')" class="bg-emerald-50 text-emerald-600 hover:bg-emerald-500 hover:text-white font-bold px-4 py-2 rounded-xl shadow-sm transition text-xs flex items-center"><i class="fa-solid fa-file-excel mr-2"></i> Export Data</button>
+        </div>
     </div>
     <div class="flex gap-4 border-b-2 border-slate-200 mb-6 font-bold text-sm overflow-x-auto"><div class="tab-custom active" id="tab-pj-riwayat" onclick="gantiTabPenjualan('riwayat')">Riwayat Transaksi</div><div class="tab-custom" id="tab-pj-so" onclick="gantiTabPenjualan('so')">Pre-Order Pelanggan (SO)</div></div> 
     
@@ -1255,7 +1272,8 @@ function viewPenjualan() { return `
          </div>
        </div>
     </div>
-</div> `; }
+</div> `; 
+}
 
 function gantiTabPenjualan(tab) { document.getElementById('konten-pj-riwayat').classList.add('hidden'); document.getElementById('konten-pj-so').classList.add('hidden'); document.getElementById('tab-pj-riwayat').className = "tab-custom"; document.getElementById('tab-pj-so').className = "tab-custom"; document.getElementById(`konten-pj-${tab}`).classList.remove('hidden'); document.getElementById(`tab-pj-${tab}`).className = "tab-custom active"; if(tab === 'so') renderTabelSO(); }
 
@@ -1271,7 +1289,16 @@ function filterRiwayat() {
     let searchEl = document.getElementById('filter-search-pj');
     if(searchEl) searchVal = searchEl.value.toLowerCase().trim();
 
+    let fCabEl = document.getElementById('pj-filter-cabang');
+    let fCab = fCabEl ? fCabEl.value.toUpperCase().trim() : 'SEMUA';
+    let roleNorm = String(state.role).toUpperCase().replace(/\s+/g, '');
+    let myCab = String(state.cabang).toUpperCase().trim();
+
     let fData = state.data.penjualan.filter(t => { 
+        let pCabang = String(t.Cabang || 'Pusat').toUpperCase().trim();
+        if (roleNorm !== 'SUPERADMIN' && pCabang !== myCab) return false;
+        if (roleNorm === 'SUPERADMIN' && fCab !== 'SEMUA' && pCabang !== fCab) return false;
+
         if(searchVal) {
             // Jika diketik sesuatu, abaikan tanggal biar semua sejarah ke-search
             return String(t.ID_Invoice).toLowerCase().includes(searchVal) || String(t.ID_Pelanggan).toLowerCase().includes(searchVal);
@@ -1284,50 +1311,30 @@ function filterRiwayat() {
     }); 
     renderRiwayatTabel(fData); 
 }
-function renderRiwayatTabel(data) { let html = ""; if(!data || data.length === 0) { html = `<tr><td colspan="6" class="p-8 text-center text-slate-400 font-bold">Tidak ada transaksi.</td></tr>`; } else { data.slice().reverse().forEach(t => { if(t.Status === 'SO/PESANAN' || t.Status === 'PESANAN') return; let color = t.Status === 'RETUR' ? 'bg-orange-100 text-orange-600' : 'bg-emerald-100 text-emerald-600'; html += `<tr class="hover:bg-slate-50 transition"><td class="p-4 pl-6"><p onclick="lihatDetailInvoice('${t.ID_Invoice}')" class="text-xs text-blue-600 font-black cursor-pointer hover:underline" title="Klik lihat detail">#${t.ID_Invoice}</p></td><td class="p-4"><p class="text-[10px] text-slate-400 font-bold">${String(t.Waktu).substring(0,16)}</p><p class="text-sm text-slate-700">${t.ID_Pelanggan}</p></td><td class="p-4"><p class="text-slate-800">${t.Metode_Pembayaran}</p><p class="text-[10px] text-slate-400">By: ${t.Kasir}</p></td><td class="p-4 text-emerald-600 font-black">${formatRp(t.Total_Akhir)}</td><td class="p-4"><span class="${color} px-2 py-1 rounded text-[10px] font-bold uppercase">${t.Status}</span></td><td class="p-4 pr-6 text-center"><button onclick="tanyaRetur('${t.ID_Invoice}')" class="bg-slate-100 hover:bg-orange-500 hover:text-white transition text-slate-500 px-3 py-1.5 rounded-lg text-xs font-bold" title="Retur"><i class="fa-solid fa-rotate-left"></i></button></td></tr>`; }); } let el = document.getElementById('tabel-riwayat-body'); if(el) el.innerHTML = html; }
-function lihatDetailInvoice(inv) { 
-    let trx = state.data.penjualan.find(t => t.ID_Invoice === inv);
-    let det = state.data.penjualan_detail ? state.data.penjualan_detail.filter(d => d.ID_Invoice === inv) : []; 
-    let html = `<div class="mb-4 text-xs flex justify-between bg-slate-50 p-3 rounded-lg border border-slate-200">
-        <div><p class="text-slate-500 font-bold">Pelanggan:</p><p class="font-black text-blue-600">${trx ? trx.ID_Pelanggan : '-'}</p></div>
-        <div class="text-right"><p class="text-slate-500 font-bold">Kasir:</p><p class="font-black uppercase">${trx ? trx.Kasir : '-'}</p></div>
-    </div>`;
-    html += `<table class="w-full text-left text-sm mb-4"><tr class="border-b text-slate-500 text-xs uppercase"><th class="py-2">Item Produk</th><th>Qty</th><th class="text-right">Total Harga</th></tr>`; 
-    if(det.length === 0) { 
-        html += `<tr><td colspan="3" class="py-4 text-center text-slate-400 font-bold">Data kosong / sinkronisasi...</td></tr>`; 
+function renderRiwayatTabel(data) { 
+    let html = ""; 
+    if(!data || data.length === 0) { 
+        html = `<tr><td colspan="6" class="p-8 text-center text-slate-400 font-bold">Tidak ada transaksi.</td></tr>`; 
     } else { 
-        det.forEach(d => { 
-            let prd = state.data.produk.find(p => p.ID_Produk === d.ID_Produk); 
-            let nm = prd ? prd.Nama_Produk : d.ID_Produk; 
-            html += `<tr class="border-b"><td class="py-2 font-bold text-slate-700">${nm}</td><td class="font-black text-center">${d.Qty}</td><td class="text-right font-bold text-blue-600">${formatRp(d.Total_Harga)}</td></tr>`; 
+        data.slice().reverse().forEach(t => { 
+            if(t.Status === 'SO/PESANAN' || t.Status === 'PESANAN') return; 
+            let color = t.Status === 'RETUR' ? 'bg-orange-100 text-orange-600' : 'bg-emerald-100 text-emerald-600'; 
+            let tCabang = String(t.Cabang || 'Pusat');
+            html += `<tr class="hover:bg-slate-50 transition">
+                <td class="p-4 pl-6">
+                    <p onclick="lihatDetailInvoice('${t.ID_Invoice}')" class="text-xs text-blue-600 font-black cursor-pointer hover:underline" title="Klik lihat detail">#${t.ID_Invoice}</p>
+                    <span class="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100 uppercase mt-1 inline-block"><i class="fa-solid fa-store mr-1"></i>${tCabang}</span>
+                </td>
+                <td class="p-4"><p class="text-[10px] text-slate-400 font-bold">${String(t.Waktu).substring(0,16)}</p><p class="text-sm text-slate-700">${t.ID_Pelanggan}</p></td>
+                <td class="p-4"><p class="text-slate-800">${t.Metode_Pembayaran}</p><p class="text-[10px] text-slate-400">By: ${t.Kasir}</p></td>
+                <td class="p-4 text-emerald-600 font-black">${formatRp(t.Total_Akhir)}</td>
+                <td class="p-4"><span class="${color} px-2 py-1 rounded text-[10px] font-bold uppercase">${t.Status}</span></td>
+                <td class="p-4 pr-6 text-center"><button onclick="tanyaRetur('${t.ID_Invoice}')" class="bg-slate-100 hover:bg-orange-500 hover:text-white transition text-slate-500 px-3 py-1.5 rounded-lg text-xs font-bold" title="Retur"><i class="fa-solid fa-rotate-left"></i></button></td>
+            </tr>`; 
         }); 
     } 
-    html += `</table>`; 
-    if(trx) {
-        let sub = parseFloat(trx.Subtotal || trx.Total_Akhir);
-        let diskon = parseFloat(trx.Diskon || 0);
-        let pajak = parseFloat(trx.Pajak || 0);
-        let tot = parseFloat(trx.Total_Akhir);
-        let hitungDP = tot - (sub - diskon + pajak); // Deteksi jika ada kelebihan uang DP
-
-        html += `<div class="bg-slate-100 p-3 rounded-lg mb-4 text-xs font-bold text-slate-600 text-right space-y-1">
-            <div class="flex justify-between"><span>Subtotal:</span><span>${formatRp(sub)}</span></div>`;
-        if(diskon > 0) html += `<div class="flex justify-between text-orange-500"><span>Diskon:</span><span>-${formatRp(diskon)}</span></div>`;
-        if(pajak > 0) html += `<div class="flex justify-between text-red-500"><span>Pajak PPN:</span><span>+${formatRp(pajak)}</span></div>`;
-        
-        // MUNCULKAN DP LEASING JIKA ADA
-        if(hitungDP > 0) html += `<div class="flex justify-between text-blue-600"><span>DP (Uang Muka):</span><span>+${formatRp(hitungDP)}</span></div>`;
-        
-        html += `</div>`;
-        html += `<div class="flex justify-between items-center bg-slate-900 text-white p-3 rounded-lg mb-4">
-            <span class="text-xs font-bold uppercase tracking-wider">Total Akhir</span>
-            <span class="font-black text-emerald-400 text-xl">${formatRp(tot)}</span>
-        </div>`;
-    }
-    html += `<button onclick="cetakInvoiceRiwayat('${inv}')" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-3 rounded-xl shadow-md transition flex items-center justify-center gap-2"><i class="fa-solid fa-print"></i> Cetak / Download PDF</button>`;
-    document.getElementById('detail-inv-title').innerText = "INVOICE #" + inv; 
-    document.getElementById('detail-inv-body').innerHTML = html; 
-    document.getElementById('modal-detail-inv').classList.replace('hidden','flex'); 
+    let el = document.getElementById('tabel-riwayat-body'); 
+    if(el) el.innerHTML = html; 
 }
 
 function cetakInvoiceRiwayat(inv) {
@@ -1438,16 +1445,33 @@ function tanyaRetur(inv) { bukaModalConfirm("Retur Transaksi", `Yakin meretur in
 async function eksekusiRetur(inv) { showInlineNotif("info", "Memproses retur..."); let res = await requestAPIWithAuth('prosesReturPenjualan', {inv: inv, user: state.user}); if(res.status) { showInlineNotif("success", res.msg); syncDataLiveBackground(); } else { showInlineNotif("error", res.msg); } }
 function renderTabelSO() { 
     let html = ""; 
-    let soData = state.data.penjualan ? state.data.penjualan.filter(t => t.Status === 'SO/PESANAN' || t.Status === 'PESANAN') : []; 
+    
+    let fCabEl = document.getElementById('pj-filter-cabang');
+    let fCab = fCabEl ? fCabEl.value.toUpperCase().trim() : 'SEMUA';
+    let roleNorm = String(state.role).toUpperCase().replace(/\s+/g, '');
+    let myCab = String(state.cabang).toUpperCase().trim();
+
+    let soData = state.data.penjualan ? state.data.penjualan.filter(t => {
+        if (t.Status !== 'SO/PESANAN' && t.Status !== 'PESANAN') return false;
+        let pCabang = String(t.Cabang || 'Pusat').toUpperCase().trim();
+        if (roleNorm !== 'SUPERADMIN' && pCabang !== myCab) return false;
+        if (roleNorm === 'SUPERADMIN' && fCab !== 'SEMUA' && pCabang !== fCab) return false;
+        return true;
+    }) : []; 
+    
     if(soData.length === 0) { 
         html = `<tr><td colspan="5" class="p-8 text-center text-slate-400 font-bold">Belum ada pesanan</td></tr>`; 
     } else { 
         soData.slice().reverse().forEach(t => { 
             let dpVal = parseFloat(t.DP) || 0;
             let sisaVal = parseFloat(t.Sisa_Tagihan) || 0;
+            let tCabang = String(t.Cabang || 'Pusat');
             
             html += `<tr class="hover:bg-slate-50 transition">
-                <td class="p-4 pl-6 text-slate-800 font-black">#${t.ID_Invoice}</td>
+                <td class="p-4 pl-6 text-slate-800 font-black">
+                    #${t.ID_Invoice}<br>
+                    <span class="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100 uppercase mt-1 inline-block"><i class="fa-solid fa-store mr-1"></i>${tCabang}</span>
+                </td>
                 <td class="p-4"><p class="text-[10px] text-slate-400 font-bold">${String(t.Waktu).substring(0,16)}</p><p class="text-sm text-blue-600">${t.ID_Pelanggan}</p></td>
                 <td class="p-4">
                     <p class="text-emerald-600 font-black">${formatRp(t.Total_Akhir)}</p>
