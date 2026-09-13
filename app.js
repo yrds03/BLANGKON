@@ -1336,7 +1336,75 @@ function renderRiwayatTabel(data) {
     let el = document.getElementById('tabel-riwayat-body'); 
     if(el) el.innerHTML = html; 
 }
+function lihatDetailInvoice(inv) { 
+    let trx = state.data.penjualan.find(t => t.ID_Invoice === inv);
+    let det = state.data.penjualan_detail ? state.data.penjualan_detail.filter(d => d.ID_Invoice === inv) : []; 
+    
+    let html = `<div class="mb-4 text-xs flex justify-between bg-slate-50 p-3 rounded-lg border border-slate-200">
+        <div><p class="text-slate-500 font-bold">Pelanggan:</p><p class="font-black text-blue-600">${trx ? trx.ID_Pelanggan : '-'}</p></div>
+        <div class="text-right"><p class="text-slate-500 font-bold">Kasir / Sales:</p><p class="font-black text-slate-800 uppercase">${trx ? trx.Kasir : '-'}</p></div>
+    </div>`;
+    
+    html += `<table class="w-full text-left text-sm mb-4"><tr class="border-b text-slate-500 text-xs uppercase"><th class="py-2">Item Produk</th><th class="text-center">Qty</th><th class="text-right">Total Harga</th></tr>`; 
+    
+    if(det.length === 0) { 
+        html += `<tr><td colspan="3" class="py-4 text-center text-slate-400 font-bold">Data kosong / sinkronisasi...</td></tr>`; 
+    } else { 
+        det.forEach(d => { 
+            let prd = state.data.produk.find(p => p.ID_Produk === d.ID_Produk); 
+            let nm = prd ? prd.Nama_Produk : d.ID_Produk; 
+            
+            let detailK = "";
+            if (prd && prd.Barcode && prd.Barcode !== '-') detailK += `IMEI: ${prd.Barcode} `;
+            if (prd && prd.Warna && prd.Warna !== '-') detailK += `(${prd.Warna})`;
+            let infoDetail = detailK !== "" ? `<p class="text-[10px] text-slate-500 font-mono mt-1">${detailK}</p>` : "";
 
+            html += `<tr class="border-b">
+                <td class="py-2 align-top">
+                    <p class="font-bold text-slate-700">${nm}</p>
+                    ${infoDetail}
+                </td>
+                <td class="font-black text-center align-top py-2">${d.Qty}</td>
+                <td class="text-right font-bold text-blue-600 align-top py-2">${formatRp(d.Total_Harga)}</td>
+            </tr>`; 
+        }); 
+    } 
+    html += `</table>`; 
+    
+    if(trx) {
+        let sub = parseFloat(trx.Subtotal || trx.Total_Akhir);
+        let diskon = parseFloat(trx.Diskon || 0);
+        let pajak = parseFloat(trx.Pajak || 0);
+        let tot = parseFloat(trx.Total_Akhir);
+        let hitungDP = tot - (sub - diskon + pajak); 
+
+        html += `<div class="bg-slate-100 p-3 rounded-lg mb-4 text-xs font-bold text-slate-600 text-right space-y-1">
+            <div class="flex justify-between"><span>Subtotal:</span><span>${formatRp(sub)}</span></div>`;
+        if(diskon > 0) html += `<div class="flex justify-between text-orange-500"><span>Diskon:</span><span>-${formatRp(diskon)}</span></div>`;
+        if(pajak > 0) html += `<div class="flex justify-between text-red-500"><span>Pajak PPN:</span><span>+${formatRp(pajak)}</span></div>`;
+        
+        if(hitungDP > 0) html += `<div class="flex justify-between text-blue-600"><span>DP (Uang Muka):</span><span>+${formatRp(hitungDP)}</span></div>`;
+        
+        if (String(trx.Status).includes('SO')) {
+            let dp = parseFloat(trx.DP || 0);
+            let sisa = parseFloat(trx.Sisa_Tagihan || 0);
+            html += `<div class="flex justify-between text-emerald-600 mt-2 border-t border-slate-200 pt-1"><span>DP Masuk:</span><span>${formatRp(dp)}</span></div>`;
+            html += `<div class="flex justify-between text-red-600"><span>Sisa Tagihan:</span><span>${formatRp(sisa)}</span></div>`;
+        }
+
+        html += `</div>`;
+        html += `<div class="flex justify-between items-center bg-slate-900 text-white p-3 rounded-lg mb-4">
+            <span class="text-xs font-bold uppercase tracking-wider">Total Akhir</span>
+            <span class="font-black text-emerald-400 text-xl">${formatRp(tot)}</span>
+        </div>`;
+    }
+    
+    html += `<button onclick="cetakInvoiceRiwayat('${inv}')" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-3 rounded-xl shadow-md transition flex items-center justify-center gap-2"><i class="fa-solid fa-print"></i> Cetak / Download PDF</button>`;
+    
+    document.getElementById('detail-inv-title').innerText = "INVOICE #" + inv; 
+    document.getElementById('detail-inv-body').innerHTML = html; 
+    document.getElementById('modal-detail-inv').classList.replace('hidden','flex'); 
+}
 function cetakInvoiceRiwayat(inv) {
     let trx = state.data.penjualan.find(t => t.ID_Invoice === inv);
     if(!trx) return showInlineNotif('error', 'Data tidak ditemukan!');
