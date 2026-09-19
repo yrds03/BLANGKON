@@ -1083,7 +1083,18 @@ async function prosesCheckoutPOS() {
 
     let btn = document.getElementById('btn-checkout'); btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> MEMPROSES...'; btn.disabled = true; 
     
-    // KIRIM kasirTransaksi KE DATABASE
+    // VALIDASI FINAL: Cek stok aktual di keranjang sebelum lempar ke API
+    if(!state.isSO) {
+        for(let k of state.keranjangPOS) {
+            let cekPrd = state.data.produk.find(p => p.ID_Produk === k.id_produk);
+            if(!cekPrd || parseFloat(cekPrd.Stok_Saat_Ini) < k.qty) {
+                showInlineNotif('error', `Gagal! Stok ${k.nama} tidak mencukupi / sudah terjual.`);
+                btn.innerHTML = '<i class="fa-solid fa-check-circle mr-2"></i> BAYAR SEKARANG'; btn.disabled = false;
+                return;
+            }
+        }
+    }
+
     let payload = { keranjang: state.keranjangPOS, subtotal: state.posTemp.subtotal, diskon: state.posTemp.diskon, pajak: state.posTemp.pajak, total_akhir: totalNominal, metode: finalMetode, id_pelanggan: plgId, kasir: kasirTransaksi, is_so: state.isSO, dp: state.posTemp.dp, sisa: state.posTemp.sisa, cabang: state.cabang }; 
     
     let res = await requestAPIWithAuth('prosesTransaksiPOS', payload);
@@ -1098,21 +1109,36 @@ async function prosesCheckoutPOS() {
         let now = new Date(); let localTime = new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().substring(0, 19).replace('T', ' '); 
         
         state.data.penjualan.push({ ID_Invoice: res.invoice, Waktu: localTime, ID_Pelanggan: plgId || "UMUM", Subtotal: state.posTemp.subtotal, Diskon: state.posTemp.diskon, Pajak: state.posTemp.pajak, Total_Akhir: totalNominal, Metode_Pembayaran: finalMetode, Status: state.isSO ? 'SO/PESANAN' : 'LUNAS', Kasir: kasirTransaksi, Cabang: state.cabang, DP: state.posTemp.dp, Sisa_Tagihan: state.posTemp.sisa }); 
+        
         state.keranjangPOS.forEach(k => {
             state.data.penjualan_detail.push({
                 ID_Detail: "DET" + Math.floor(Math.random() * 100000), ID_Invoice: res.invoice, ID_Produk: k.id_produk,
                 Harga_Satuan: k.harga, Qty: k.qty, Total_Harga: k.total, Cabang: state.cabang
             });
         });
-        if(!state.isSO) { state.keranjangPOS.forEach(k => { let idx = state.data.produk.findIndex(p => p.ID_Produk === k.id_produk); if(idx > -1) state.data.produk[idx].Stok_Saat_Ini = parseFloat(state.data.produk[idx].Stok_Saat_Ini) - k.qty; }); } 
+
+        // Potong stok lokal agar tidak bisa di-scan lagi
+        if(!state.isSO) { 
+            state.keranjangPOS.forEach(k => { 
+                let idx = state.data.produk.findIndex(p => p.ID_Produk === k.id_produk); 
+                if(idx > -1) state.data.produk[idx].Stok_Saat_Ini = parseFloat(state.data.produk[idx].Stok_Saat_Ini) - k.qty; 
+            }); 
+        } 
         
         state.keranjangPOS = []; 
         renderKeranjangPOS();
 
         document.getElementById('area-bayar').classList.add('hidden'); document.getElementById('area-setelah-bayar').classList.replace('hidden','flex'); 
         btn.innerHTML = '<i class="fa-solid fa-check-circle mr-2"></i> BAYAR SEKARANG'; btn.disabled = false; 
-        syncDataLiveBackground(); jalankanCetakStruk(res.invoice, totalNominal); 
-    } else { showInlineNotif('error', res.msg); btn.innerHTML = '<i class="fa-solid fa-check-circle mr-2"></i> BAYAR SEKARANG'; btn.disabled = false; } 
+        
+        // PERBAIKAN: Beri jeda 3 detik ke Google Sheets sebelum menarik data terbaru
+        setTimeout(() => { syncDataLiveBackground(); }, 3000); 
+
+        jalankanCetakStruk(res.invoice, totalNominal); 
+    } else { 
+        showInlineNotif('error', res.msg); 
+        btn.innerHTML = '<i class="fa-solid fa-check-circle mr-2"></i> BAYAR SEKARANG'; btn.disabled = false; 
+    } 
 }
 
 async function jalankanCetakStruk(invoice, totAkhir) { 
