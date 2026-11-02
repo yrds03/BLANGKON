@@ -1365,6 +1365,8 @@ function renderRiwayatTabel(data) {
 function lihatDetailInvoice(inv) { 
     let trx = state.data.penjualan.find(t => t.ID_Invoice === inv);
     let det = state.data.penjualan_detail ? state.data.penjualan_detail.filter(d => d.ID_Invoice === inv) : []; 
+    let roleNorm = String(state.role).toUpperCase().replace(/\s+/g, '');
+    let isAdmin = (roleNorm !== 'KASIR');
     
     let html = `<div class="mb-4 text-xs flex justify-between bg-slate-50 p-3 rounded-lg border border-slate-200">
         <div><p class="text-slate-500 font-bold">Pelanggan:</p><p class="font-black text-blue-600">${trx ? trx.ID_Pelanggan : '-'}</p></div>
@@ -1373,22 +1375,37 @@ function lihatDetailInvoice(inv) {
     
     html += `<table class="w-full text-left text-sm mb-4"><tr class="border-b text-slate-500 text-xs uppercase"><th class="py-2">Item Produk</th><th class="text-center">Qty</th><th class="text-right">Total Harga</th></tr>`; 
     
+    let totalModalNota = 0;
+
     if(det.length === 0) { 
         html += `<tr><td colspan="3" class="py-4 text-center text-slate-400 font-bold">Data kosong / sinkronisasi...</td></tr>`; 
     } else { 
         det.forEach(d => { 
-            let prd = state.data.produk.find(p => p.ID_Produk === d.ID_Produk); 
+            let prd = state.data.produk.find(p => String(p.ID_Produk) === String(d.ID_Produk)); 
             let nm = prd ? prd.Nama_Produk : d.ID_Produk; 
+            let hrgBeli = prd ? parseFloat(prd.Harga_Beli || 0) : 0;
+            let qtyItem = parseFloat(d.Qty || 0);
+            totalModalNota += (hrgBeli * qtyItem);
             
             let detailK = "";
             if (prd && prd.Barcode && prd.Barcode !== '-') detailK += `IMEI: ${prd.Barcode} `;
             if (prd && prd.Warna && prd.Warna !== '-') detailK += `(${prd.Warna})`;
             let infoDetail = detailK !== "" ? `<p class="text-[10px] text-slate-500 font-mono mt-1">${detailK}</p>` : "";
 
+            // TAMPILKAN MODAL & TOMBOL UBAH MODAL KHUSUS ADMIN / SUPERADMIN
+            let infoModal = "";
+            if (isAdmin && prd) {
+                infoModal = `<div id="wrap-modal-${prd.ID_Produk}" class="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    <span class="text-[10px] bg-amber-50 text-amber-700 px-2 py-0.5 rounded border border-amber-200 font-bold">Modal: ${formatRp(hrgBeli)}</span>
+                    <button onclick="bukaEditModalInline('${prd.ID_Produk}', ${hrgBeli}, '${inv}')" class="text-[10px] bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white px-2 py-0.5 rounded border border-blue-200 font-bold transition"><i class="fa-solid fa-pen mr-1"></i>Ubah Modal</button>
+                </div>`;
+            }
+
             html += `<tr class="border-b">
                 <td class="py-2 align-top">
                     <p class="font-bold text-slate-700">${nm}</p>
                     ${infoDetail}
+                    ${infoModal}
                 </td>
                 <td class="font-black text-center align-top py-2">${d.Qty}</td>
                 <td class="text-right font-bold text-blue-600 align-top py-2">${formatRp(d.Total_Harga)}</td>
@@ -1403,12 +1420,12 @@ function lihatDetailInvoice(inv) {
         let pajak = parseFloat(trx.Pajak || 0);
         let tot = parseFloat(trx.Total_Akhir);
         let hitungDP = tot - (sub - diskon + pajak); 
+        let labaNota = (sub - diskon) - totalModalNota;
 
         html += `<div class="bg-slate-100 p-3 rounded-lg mb-4 text-xs font-bold text-slate-600 text-right space-y-1">
             <div class="flex justify-between"><span>Subtotal:</span><span>${formatRp(sub)}</span></div>`;
         if(diskon > 0) html += `<div class="flex justify-between text-orange-500"><span>Diskon:</span><span>-${formatRp(diskon)}</span></div>`;
         if(pajak > 0) html += `<div class="flex justify-between text-red-500"><span>Pajak PPN:</span><span>+${formatRp(pajak)}</span></div>`;
-        
         if(hitungDP > 0) html += `<div class="flex justify-between text-blue-600"><span>DP (Uang Muka):</span><span>+${formatRp(hitungDP)}</span></div>`;
         
         if (String(trx.Status).includes('SO')) {
@@ -1416,6 +1433,13 @@ function lihatDetailInvoice(inv) {
             let sisa = parseFloat(trx.Sisa_Tagihan || 0);
             html += `<div class="flex justify-between text-emerald-600 mt-2 border-t border-slate-200 pt-1"><span>DP Masuk:</span><span>${formatRp(dp)}</span></div>`;
             html += `<div class="flex justify-between text-red-600"><span>Sisa Tagihan:</span><span>${formatRp(sisa)}</span></div>`;
+        }
+
+        // REKAP MODAL & LABA NOTA KHUSUS ADMIN / SUPERADMIN
+        if (isAdmin) {
+            let labaColor = labaNota >= 0 ? 'text-emerald-600' : 'text-red-600';
+            html += `<div class="flex justify-between text-amber-700 border-t border-slate-200 pt-1.5 mt-1.5"><span>Total Modal (HPP):</span><span>${formatRp(totalModalNota)}</span></div>`;
+            html += `<div class="flex justify-between ${labaColor} font-black"><span>Estimasi Laba:</span><span>${formatRp(labaNota)}</span></div>`;
         }
 
         html += `</div>`;
@@ -1430,6 +1454,58 @@ function lihatDetailInvoice(inv) {
     document.getElementById('detail-inv-title').innerText = "INVOICE #" + inv; 
     document.getElementById('detail-inv-body').innerHTML = html; 
     document.getElementById('modal-detail-inv').classList.replace('hidden','flex'); 
+}
+
+function bukaEditModalInline(idPrd, hrgLama, inv) {
+    let wrap = document.getElementById('wrap-modal-' + idPrd);
+    if (!wrap) return;
+    let formatted = hrgLama ? parseInt(hrgLama, 10).toLocaleString('id-ID') : '0';
+    wrap.innerHTML = `
+        <input type="text" inputmode="numeric" id="in-mdl-baru-${idPrd}" value="${formatted}" onkeyup="formatInputRibuan(this)" class="w-28 border border-blue-400 p-1 rounded text-xs font-black text-slate-800 bg-white outline-none shadow-inner">
+        <button onclick="simpanModalInline('${idPrd}', '${inv}')" id="btn-sv-mdl-${idPrd}" class="bg-emerald-500 hover:bg-emerald-600 text-white px-2.5 py-1 rounded text-[10px] font-bold shadow transition">Simpan</button>
+        <button onclick="lihatDetailInvoice('${inv}')" class="bg-slate-200 hover:bg-slate-300 text-slate-600 px-2 py-1 rounded text-[10px] font-bold transition">Batal</button>
+    `;
+    setTimeout(() => {
+        let inp = document.getElementById('in-mdl-baru-' + idPrd);
+        if (inp) { inp.focus(); inp.select(); }
+    }, 50);
+}
+
+async function simpanModalInline(idPrd, inv) {
+    let inp = document.getElementById('in-mdl-baru-' + idPrd);
+    if (!inp) return;
+    let modalBaru = parseAngka(inp.value);
+    let p = state.data.produk.find(x => String(x.ID_Produk) === String(idPrd));
+    if (!p) return showInlineNotif('error', 'Data produk tidak ditemukan!');
+
+    let btn = document.getElementById('btn-sv-mdl-' + idPrd);
+    if (btn) { btn.innerText = '...'; btn.disabled = true; }
+
+    let obj = {
+        Barcode: p.Barcode || "",
+        Nama_Produk: p.Nama_Produk || "",
+        Supplier: p.Supplier || "-",
+        Kategori: p.Kategori || "Umum",
+        Warna: p.Warna || "",
+        Harga_Beli: modalBaru,
+        Harga_Jual: parseFloat(p.Harga_Jual || 0),
+        Diskon: parseFloat(p.Diskon || 0),
+        Stok_Saat_Ini: parseFloat(p.Stok_Saat_Ini || 0),
+        Stok_Minimum: parseFloat(p.Stok_Minimum || 0),
+        Satuan: p.Satuan || "Pcs",
+        Cabang: p.Cabang || state.cabang
+    };
+
+    let res = await requestAPIWithAuth('crudDataMaster', {modul: 'Produk', action: 'UPDATE', key: 'ID_Produk', id: idPrd, obj: obj});
+    if (res && res.status) {
+        p.Harga_Beli = modalBaru;
+        showInlineNotif('success', `Modal ${p.Nama_Produk} berhasil diupdate ke ${formatRp(modalBaru)}!`);
+        lihatDetailInvoice(inv);
+        setTimeout(() => { syncDataLiveBackground(); }, 1500);
+    } else {
+        showInlineNotif('error', (res && res.msg) ? res.msg : 'Gagal mengubah modal!');
+        if (btn) { btn.innerText = 'Simpan'; btn.disabled = false; }
+    }
 }
 function cetakInvoiceRiwayat(inv) {
     let trx = state.data.penjualan.find(t => t.ID_Invoice === inv);
@@ -1641,15 +1717,26 @@ function viewProduk() {
   let filterCabangHtml = '';
   let roleNorm = String(state.role).toUpperCase().replace(/\s+/g, '');
   if(roleNorm !== 'KASIR') {
-      filterCabangHtml = `<select id="filter-cabang-produk" onchange="filterProdukUI()" class="border border-slate-200 p-2.5 rounded-lg text-xs font-bold outline-none focus:border-blue-500 bg-white ml-3 shadow-sm"><option value="SEMUA">Semua Cabang</option>`;
+      filterCabangHtml = `<select id="filter-cabang-produk" onchange="filterProdukUI()" class="border border-slate-200 p-2.5 rounded-lg text-xs font-bold outline-none focus:border-blue-500 bg-white shadow-sm"><option value="SEMUA">Semua Cabang</option>`;
       savedCabang.forEach(c => { filterCabangHtml += `<option value="${c}">${c}</option>`; });
       filterCabangHtml += `</select>`;
   } else { filterCabangHtml = `<input type="hidden" id="filter-cabang-produk" value="${state.cabang}">`; }
+
+  // FILTER BARU: STATUS STOK (READY / TERJUAL / SEMUA)
+  let filterStatusStokHtml = `<select id="filter-status-produk" onchange="filterProdukUI()" class="border border-slate-200 p-2.5 rounded-lg text-xs font-bold outline-none focus:border-blue-500 bg-white shadow-sm">
+      <option value="READY">Stok Ready (>0)</option>
+      <option value="TERJUAL">Sudah Terjual / Habis (0)</option>
+      <option value="SEMUA">Semua Barang</option>
+  </select>`;
   
   return `
   <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col h-full"> 
       <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-          <h3 class="font-black text-lg text-slate-800 flex items-center">Master Produk ${filterCabangHtml}</h3>
+          <div class="flex flex-wrap items-center gap-2">
+              <h3 class="font-black text-lg text-slate-800 mr-1">Master Produk</h3>
+              ${filterCabangHtml}
+              ${filterStatusStokHtml}
+          </div>
           
           <!-- SEARCH BAR PRODUK -->
           <div class="relative w-full md:w-64">
@@ -1710,11 +1797,14 @@ function viewProduk() {
       </div> 
   </div>`; 
 }
+
 function filterProdukUI() { 
     let filterEl = document.getElementById('filter-cabang-produk');
+    let statusEl = document.getElementById('filter-status-produk');
     let searchEl = document.getElementById('prd-search');
     
     let filterCabang = filterEl ? filterEl.value : 'SEMUA';
+    let statusStok = statusEl ? statusEl.value : 'READY';
     let searchVal = searchEl ? searchEl.value.toLowerCase().trim() : '';
     
     let roleNorm = String(state.role).toUpperCase().replace(/\s+/g, '');
@@ -1726,8 +1816,11 @@ function filterProdukUI() {
         html = `<tr><td colspan="6" class="p-10 text-center text-slate-400 font-bold">Data Kosong.</td></tr>`; 
     } else { 
         let filteredProd = state.data.produk.filter(p => {
-            // SEMBUNYIKAN BARANG YANG STOKNYA 0 ATAU HABIS DARI LAYAR
-            if(parseFloat(p.Stok_Saat_Ini) <= 0) return false;
+            let stokAktual = parseFloat(p.Stok_Saat_Ini) || 0;
+            
+            // FILTER BERDASARKAN STATUS STOK (READY / TERJUAL / SEMUA)
+            if (statusStok === 'READY' && stokAktual <= 0) return false;
+            if (statusStok === 'TERJUAL' && stokAktual > 0) return false;
 
             let rawCabang = p.Cabang || 'Pusat';
             let pCabang = String(rawCabang).toUpperCase().trim();
@@ -1737,19 +1830,21 @@ function filterProdukUI() {
             if(searchVal) {
                 let nm = String(p.Nama_Produk||"").toLowerCase();
                 let bc = String(p.Barcode||"").toLowerCase();
-                if(!nm.includes(searchVal) && !bc.includes(searchVal)) return false;
+                let idp = String(p.ID_Produk||"").toLowerCase();
+                if(!nm.includes(searchVal) && !bc.includes(searchVal) && !idp.includes(searchVal)) return false;
             }
             return true;
         });
 
         if(filteredProd.length === 0) {
-            html = `<tr><td colspan="6" class="p-10 text-center text-slate-400 font-bold">Produk tidak ditemukan.</td></tr>`;
+            html = `<tr><td colspan="6" class="p-10 text-center text-slate-400 font-bold">Produk tidak ditemukan pada filter ini.</td></tr>`;
         } else {
             filteredProd.forEach(p => { 
                 let rawCabang = p.Cabang || 'Pusat';
                 let isHabis = parseFloat(p.Stok_Saat_Ini) <= 0; 
                 let isWarning = parseFloat(p.Stok_Saat_Ini) <= parseFloat(p.Stok_Minimum || 0) && !isHabis;
                 let stClass = isHabis ? "text-red-500 bg-red-50 px-2 py-1 rounded border border-red-200" : (isWarning ? "text-orange-500 bg-orange-50 px-2 py-1 rounded border border-orange-200" : "text-emerald-600 font-black"); 
+                let labelStok = isHabis ? `TERJUAL (0)` : `${p.Stok_Saat_Ini} <span class="text-[10px] font-bold text-slate-400 uppercase">${p.Satuan}</span>`;
                 let warnaHtml = p.Warna ? `<span class="text-[10px] bg-slate-100 px-2 py-0.5 rounded text-slate-600 border border-slate-200"><i class="fa-solid fa-palette mr-1 text-slate-400"></i>${p.Warna}</span>` : '';
                 let supHtml = p.Supplier && p.Supplier !== '-' ? `<span class="text-[10px] bg-yellow-50 text-yellow-700 px-2 py-0.5 rounded font-bold border border-yellow-200"><i class="fa-solid fa-truck-fast mr-1"></i>${p.Supplier}</span>` : '';
                 
@@ -1757,10 +1852,10 @@ function filterProdukUI() {
                     <td class="p-4 pl-4 text-center admin-only"><input type="checkbox" class="cb-prd-item w-4 h-4 cursor-pointer" value="${p.ID_Produk}" onchange="checkPrdItem()"></td>
                     <td class="p-4"><p class="text-xs font-bold text-blue-600">${p.ID_Produk}</p><p class="text-[10px] font-mono text-slate-400">${p.Barcode||'-'}</p></td>
                     <td class="p-4"><p class="font-bold text-slate-800">${p.Nama_Produk}</p><div class="mt-1 flex flex-wrap gap-1"><span class="text-[10px] bg-slate-100 px-2 py-0.5 rounded text-slate-600 border border-slate-200"><i class="fa-solid fa-tag mr-1 text-slate-400"></i>${p.Kategori}</span> ${warnaHtml} ${supHtml} <span class="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded font-bold border border-blue-100 uppercase"><i class="fa-solid fa-location-dot mr-1"></i>${rawCabang}</span></div></td>
-                    <td class="p-4 admin-only"><p class="text-[10px] text-slate-400 font-bold">B: ${formatRp(p.Harga_Beli)}</p><p class="text-sm text-slate-800 font-black mt-0.5">J: ${formatRp(p.Harga_Jual)}</p></td>
-                    <td class="p-4"><span class="${stClass}">${p.Stok_Saat_Ini} <span class="text-[10px] font-bold text-slate-400 uppercase">${p.Satuan}</span></span><p class="text-[10px] text-slate-400 mt-1 font-bold">Min Stok: ${p.Stok_Minimum || 0}</p></td>
+                    <td class="p-4 admin-only"><p class="text-xs text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 inline-block font-bold">Modal: ${formatRp(p.Harga_Beli)}</p><p class="text-sm text-slate-800 font-black mt-1">Jual: ${formatRp(p.Harga_Jual)}</p></td>
+                    <td class="p-4"><span class="${stClass} text-xs font-black">${labelStok}</span><p class="text-[10px] text-slate-400 mt-1 font-bold">Min Stok: ${p.Stok_Minimum || 0}</p></td>
                     <td class="p-4 pr-6 flex gap-2 justify-center items-center h-full admin-only mt-2">
-                        <button onclick="bukaFormProduk(true, '${p.ID_Produk}')" class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white transition shadow-sm border border-blue-100" title="Edit"><i class="fa-solid fa-pen text-[10px]"></i></button>
+                        <button onclick="bukaFormProduk(true, '${p.ID_Produk}')" class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white transition shadow-sm border border-blue-100" title="Edit Modal / Produk"><i class="fa-solid fa-pen text-[10px]"></i></button>
                         <button onclick="konfirmasiHapusProduk('${p.ID_Produk}')" class="w-8 h-8 rounded-lg bg-red-50 text-red-500 hover:bg-red-500 hover:text-white transition shadow-sm border border-red-100" title="Hapus"><i class="fa-solid fa-trash text-[10px]"></i></button>
                     </td>
                 </tr>`; 
