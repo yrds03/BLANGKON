@@ -95,6 +95,56 @@ function pastikanDataAman(rawData) {
     return aman;
 }
 
+const escapeHtml = (str) => String(str === null || str === undefined ? '' : str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+const escapeJsStr = (str) => String(str === null || str === undefined ? '' : str)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/"/g, '&quot;')
+    .replace(/\r?\n/g, ' ');
+
+function parseTanggalLokal(waktuStr) {
+    let raw = String(waktuStr || '').trim().substring(0, 10);
+    if (!raw) return new Date(0);
+    if (raw.includes('/')) {
+        let p = raw.split('/');
+        if (p[0].length === 4) return new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10), 12, 0, 0);
+        return new Date(parseInt(p[2], 10), parseInt(p[1], 10) - 1, parseInt(p[0], 10), 12, 0, 0);
+    }
+    let p = raw.split('-');
+    if (p.length === 3) {
+        if (p[0].length === 4) return new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10), 12, 0, 0);
+        return new Date(parseInt(p[2], 10), parseInt(p[1], 10) - 1, parseInt(p[0], 10), 12, 0, 0);
+    }
+    let d = new Date(raw);
+    return isNaN(d.getTime()) ? new Date(0) : d;
+}
+
+function getNamaPelanggan(idOrName) {
+    if (!idOrName || idOrName === 'UMUM') return 'UMUM';
+    let plg = (state.data && state.data.pelanggan) ? state.data.pelanggan.find(p => String(p.ID_Pelanggan) === String(idOrName)) : null;
+    return plg ? `${plg.Nama_Pelanggan} (${plg.ID_Pelanggan})` : String(idOrName);
+}
+
+function isMenuAllowed(menuId) {
+    let roleNorm = String(state.role || '').toUpperCase().replace(/\s+/g, '');
+    if (roleNorm === 'SUPERADMIN') return true;
+    let myAkun = (state.data && state.data.akun) ? state.data.akun.find(a => String(a.Username).trim() === state.user) : null;
+    let akses = (myAkun && myAkun.Akses_Menu) ? String(myAkun.Akses_Menu).split(',').map(s => s.trim()).filter(Boolean) : null;
+    if (akses && akses.length > 0) {
+        if (menuId === 'akun') return true;
+        return akses.includes(menuId);
+    }
+    const adminOnlyMenus = ['pelanggan', 'supplier', 'laporan', 'keuangan', 'datamaster', 'pengaturan'];
+    if (roleNorm === 'KASIR' && adminOnlyMenus.includes(menuId)) return false;
+    return true;
+}
+
 // ====================================================================
 // PWA UPDATE CHECK & AUTO CACHE CLEAR
 // ====================================================================
@@ -513,6 +563,10 @@ function prosesLogout() {
 }
 
 function navigasi(menuId) { 
+    if (!isMenuAllowed(menuId)) {
+        showInlineNotif('error', 'Akses ditolak! Akun Anda tidak memiliki izin untuk membuka menu tersebut.');
+        menuId = isMenuAllowed('dashboard') ? 'dashboard' : 'pos';
+    }
     state.activeMenu = menuId; localStorage.setItem('sanstech_active_menu', menuId); 
     const menuTitles = { dashboard: "Dashboard", pos: "Sistem Kasir", penjualan: "Penjualan / SO", produk: "Produk Master", stok: "Kelola Stok", pelanggan: "Pelanggan", supplier: "Supplier", pembelian: "Pembelian (PO)", laporan: "Laporan & Analisis", keuangan: "Keuangan", datamaster: "Data Master", pengaturan: "Pengaturan", akun: "Profil Akun" };
     document.getElementById('ui-title').innerText = menuTitles[menuId] || "Aplikasi"; document.getElementById('inline-global-notif').classList.add('hidden'); document.querySelectorAll('.menu-sidebar').forEach(el => el.classList.remove('active')); 
@@ -524,6 +578,10 @@ function navigasi(menuId) {
 function renderModulAktif() {
     let area = document.getElementById('main-content-area'); area.innerHTML = ""; 
     try {
+        if (!isMenuAllowed(state.activeMenu)) {
+            state.activeMenu = isMenuAllowed('dashboard') ? 'dashboard' : 'pos';
+            localStorage.setItem('sanstech_active_menu', state.activeMenu);
+        }
         switch(state.activeMenu) { 
             case 'dashboard': area.innerHTML = viewDashboard(); renderChartDasbor(); break; 
             case 'pos': area.innerHTML = viewPOS(); renderKeranjangPOS(); setPilihanPelanggan(); break; 
@@ -618,24 +676,43 @@ function viewDashboard() {
     let dNow = new Date(); 
     let tglIni = dNow.getFullYear() + "-" + String(dNow.getMonth() + 1).padStart(2, '0') + "-" + String(dNow.getDate()).padStart(2, '0'); 
     
-    let jualHariIni = 0; let labaHariIni = 0; let itemTerjual = 0; let validInv = [];
+    let jualHariIni = 0; let labaHariIni = 0; let itemTerjual = 0; let validInvMap = {};
 
     if(state.data.penjualan) { 
         state.data.penjualan.forEach(j => { 
-            let wkt = String(j.Waktu).substring(0,10); 
-            if(wkt === tglIni && j.Status !== 'RETUR' && j.Status !== 'SO/PESANAN') { 
-                jualHariIni += parseFloat(j.Total_Akhir||0); 
-                labaHariIni += (parseFloat(j.Total_Akhir||0) * 0.15); 
-                validInv.push(j.ID_Invoice);
+            let dWkt = parseTanggalLokal(j.Waktu);
+            let wkt = dWkt.getFullYear() + "-" + String(dWkt.getMonth() + 1).padStart(2, '0') + "-" + String(dWkt.getDate()).padStart(2, '0');
+            if(wkt === tglIni && j.Status !== 'RETUR' && j.Status !== 'SO/PESANAN' && j.Status !== 'PESANAN') { 
+                let totAkhir = parseFloat(j.Total_Akhir || 0);
+                let sub = parseFloat(j.Subtotal || totAkhir);
+                let disk = parseFloat(j.Diskon || 0);
+                jualHariIni += totAkhir; 
+                validInvMap[j.ID_Invoice] = { netSales: sub - disk, hpp: 0, hasDetail: false };
             } 
         }); 
     } 
     
-    if(state.data.penjualan_detail && validInv.length > 0) {
+    let validInvIds = Object.keys(validInvMap);
+    if(state.data.penjualan_detail && validInvIds.length > 0) {
         state.data.penjualan_detail.forEach(d => {
-            if(validInv.includes(d.ID_Invoice)) { itemTerjual += parseFloat(d.Qty || 0); }
+            if(validInvMap[d.ID_Invoice]) {
+                let qty = parseFloat(d.Qty || 0);
+                itemTerjual += qty;
+                let prd = state.data.produk ? state.data.produk.find(p => String(p.ID_Produk) === String(d.ID_Produk)) : null;
+                let hrgBeli = prd ? parseFloat(prd.Harga_Beli || 0) : 0;
+                validInvMap[d.ID_Invoice].hpp += (hrgBeli * qty);
+                validInvMap[d.ID_Invoice].hasDetail = true;
+            }
         });
     }
+    validInvIds.forEach(invId => {
+        let info = validInvMap[invId];
+        if (info.hasDetail) {
+            labaHariIni += (info.netSales - info.hpp);
+        } else {
+            labaHariIni += (info.netSales * 0.15);
+        }
+    });
 
     return `<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 flex items-center gap-4">
@@ -673,7 +750,7 @@ function viewDashboard() {
         </div>
     </div>`; 
 }
-function renderChartDasbor() { let canvas = document.getElementById('dashChart'); if(!canvas) return; if(chartDash !== null) chartDash.destroy(); let ctx = canvas.getContext('2d'); let labels = []; let dataOmset = []; for(let i=6; i>=0; i--) { let d = new Date(); d.setDate(d.getDate() - i); let dateStr = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, '0') + "-" + String(d.getDate()).padStart(2, '0'); let labelStr = d.getDate() + '/' + (d.getMonth()+1); let omsetHariIni = 0; if(state.data.penjualan) { state.data.penjualan.forEach(j => { let wktJual = String(j.Waktu).substring(0, 10); if(wktJual === dateStr && j.Status !== 'RETUR' && j.Status !== 'SO/PESANAN') omsetHariIni += parseFloat(j.Total_Akhir || 0); }); } labels.push(labelStr); dataOmset.push(omsetHariIni); } chartDash = new Chart(ctx, { type: 'line', data: { labels: labels, datasets: [{ label: 'Omset', data: dataOmset, borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,0.1)', fill: true, tension: 0.4 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } } }); }
+function renderChartDasbor() { let canvas = document.getElementById('dashChart'); if(!canvas) return; if(chartDash !== null) chartDash.destroy(); let ctx = canvas.getContext('2d'); let labels = []; let dataOmset = []; for(let i=6; i>=0; i--) { let d = new Date(); d.setDate(d.getDate() - i); let dateStr = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, '0') + "-" + String(d.getDate()).padStart(2, '0'); let labelStr = d.getDate() + '/' + (d.getMonth()+1); let omsetHariIni = 0; if(state.data.penjualan) { state.data.penjualan.forEach(j => { let dJ = parseTanggalLokal(j.Waktu); let wktJual = dJ.getFullYear() + "-" + String(dJ.getMonth() + 1).padStart(2, '0') + "-" + String(dJ.getDate()).padStart(2, '0'); if(wktJual === dateStr && j.Status !== 'RETUR' && j.Status !== 'SO/PESANAN' && j.Status !== 'PESANAN') omsetHariIni += parseFloat(j.Total_Akhir || 0); }); } labels.push(labelStr); dataOmset.push(omsetHariIni); } chartDash = new Chart(ctx, { type: 'line', data: { labels: labels, datasets: [{ label: 'Omset', data: dataOmset, borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,0.1)', fill: true, tension: 0.4 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } } }); }
 
 // ====================================================================
 // VIEW & FUNGSI: POS KASIR
@@ -1407,12 +1484,15 @@ function filterRiwayat() {
         if (roleNorm === 'SUPERADMIN' && fCab !== 'SEMUA' && pCabang !== fCab) return false;
 
         if(searchVal) {
-            // Jika diketik sesuatu, abaikan tanggal biar semua sejarah ke-search
-            return String(t.ID_Invoice).toLowerCase().includes(searchVal) || String(t.ID_Pelanggan).toLowerCase().includes(searchVal);
+            // Jika diketik sesuatu, abaikan tanggal biar semua sejarah ke-search (ID Invoice, ID Pelanggan, Nama Pelanggan, Kasir)
+            let namaPlg = getNamaPelanggan(t.ID_Pelanggan).toLowerCase();
+            return String(t.ID_Invoice).toLowerCase().includes(searchVal) ||
+                   String(t.ID_Pelanggan).toLowerCase().includes(searchVal) ||
+                   namaPlg.includes(searchVal) ||
+                   String(t.Kasir || '').toLowerCase().includes(searchVal);
         } else {
             // Jika kolom search kosong, pakai filter tanggal seperti biasa
-            let parts = String(t.Waktu).split(' ')[0].split('-'); 
-            let d = new Date(`${parts[0]}-${parts[1]}-${parts[2]}T12:00:00`); 
+            let d = parseTanggalLokal(t.Waktu);
             return d >= start && d <= end; 
         }
     }); 
@@ -1427,16 +1507,17 @@ function renderRiwayatTabel(data) {
             if(t.Status === 'SO/PESANAN' || t.Status === 'PESANAN') return; 
             let color = t.Status === 'RETUR' ? 'bg-orange-100 text-orange-600' : 'bg-emerald-100 text-emerald-600'; 
             let tCabang = String(t.Cabang || 'Pusat');
+            let labelPlg = getNamaPelanggan(t.ID_Pelanggan);
             html += `<tr class="hover:bg-slate-50 transition">
                 <td class="p-4 pl-6">
-                    <p onclick="lihatDetailInvoice('${t.ID_Invoice}')" class="text-xs text-blue-600 font-black cursor-pointer hover:underline" title="Klik lihat detail">#${t.ID_Invoice}</p>
-                    <span class="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100 uppercase mt-1 inline-block"><i class="fa-solid fa-store mr-1"></i>${tCabang}</span>
+                    <p onclick="lihatDetailInvoice('${escapeJsStr(t.ID_Invoice)}')" class="text-xs text-blue-600 font-black cursor-pointer hover:underline" title="Klik lihat detail">#${escapeHtml(t.ID_Invoice)}</p>
+                    <span class="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100 uppercase mt-1 inline-block"><i class="fa-solid fa-store mr-1"></i>${escapeHtml(tCabang)}</span>
                 </td>
-                <td class="p-4"><p class="text-[10px] text-slate-400 font-bold">${String(t.Waktu).substring(0,16)}</p><p class="text-sm text-slate-700">${t.ID_Pelanggan}</p></td>
-                <td class="p-4"><p class="text-slate-800">${t.Metode_Pembayaran}</p><p class="text-[10px] text-slate-400">By: ${t.Kasir}</p></td>
+                <td class="p-4"><p class="text-[10px] text-slate-400 font-bold">${String(t.Waktu).substring(0,16)}</p><p class="text-sm text-slate-700">${escapeHtml(labelPlg)}</p></td>
+                <td class="p-4"><p class="text-slate-800">${escapeHtml(t.Metode_Pembayaran)}</p><p class="text-[10px] text-slate-400">By: ${escapeHtml(t.Kasir)}</p></td>
                 <td class="p-4 text-emerald-600 font-black">${formatRp(t.Total_Akhir)}</td>
-                <td class="p-4"><span class="${color} px-2 py-1 rounded text-[10px] font-bold uppercase">${t.Status}</span></td>
-                <td class="p-4 pr-6 text-center"><button onclick="tanyaRetur('${t.ID_Invoice}')" class="bg-slate-100 hover:bg-orange-500 hover:text-white transition text-slate-500 px-3 py-1.5 rounded-lg text-xs font-bold" title="Retur"><i class="fa-solid fa-rotate-left"></i></button></td>
+                <td class="p-4"><span class="${color} px-2 py-1 rounded text-[10px] font-bold uppercase">${escapeHtml(t.Status)}</span></td>
+                <td class="p-4 pr-6 text-center"><button onclick="tanyaRetur('${escapeJsStr(t.ID_Invoice)}')" class="bg-slate-100 hover:bg-orange-500 hover:text-white transition text-slate-500 px-3 py-1.5 rounded-lg text-xs font-bold" title="Retur"><i class="fa-solid fa-rotate-left"></i></button></td>
             </tr>`; 
         }); 
     } 
@@ -1450,8 +1531,8 @@ function lihatDetailInvoice(inv) {
     let isAdmin = (roleNorm !== 'KASIR');
     
     let html = `<div class="mb-4 text-xs flex justify-between bg-slate-50 p-3 rounded-lg border border-slate-200">
-        <div><p class="text-slate-500 font-bold">Pelanggan:</p><p class="font-black text-blue-600">${trx ? trx.ID_Pelanggan : '-'}</p></div>
-        <div class="text-right"><p class="text-slate-500 font-bold">Kasir / Sales:</p><p class="font-black text-slate-800 uppercase">${trx ? trx.Kasir : '-'}</p></div>
+        <div><p class="text-slate-500 font-bold">Pelanggan:</p><p class="font-black text-blue-600">${trx ? escapeHtml(getNamaPelanggan(trx.ID_Pelanggan)) : '-'}</p></div>
+        <div class="text-right"><p class="text-slate-500 font-bold">Kasir / Sales:</p><p class="font-black text-slate-800 uppercase">${trx ? escapeHtml(trx.Kasir) : '-'}</p></div>
     </div>`;
     
     html += `<table class="w-full text-left text-sm mb-4"><tr class="border-b text-slate-500 text-xs uppercase"><th class="py-2">Item Produk</th><th class="text-center">Qty</th><th class="text-right">Total Harga</th></tr>`; 
@@ -1614,7 +1695,7 @@ function cetakInvoiceRiwayat(inv) {
         // 1. RANGKAI 1 STRUK UNTUK BLUETOOTH
         let strukSingle = `\n${namaToko}\n`;
         if (headerToko) strukSingle += `${headerToko}\n`;
-        strukSingle += `--------------------------------\nINV: ${inv}\nTgl: ${String(trx.Waktu).substring(0,16)}\nKasir/Sales: ${trx.Kasir}\nPlg: ${trx.ID_Pelanggan}\n--------------------------------\n`;
+        strukSingle += `--------------------------------\nINV: ${inv}\nTgl: ${String(trx.Waktu).substring(0,16)}\nKasir/Sales: ${trx.Kasir}\nPlg: ${getNamaPelanggan(trx.ID_Pelanggan)}\n--------------------------------\n`;
         
         det.forEach(d => { 
             let prd = state.data.produk.find(p => p.ID_Produk === d.ID_Produk); 
@@ -1653,7 +1734,7 @@ function cetakInvoiceRiwayat(inv) {
     let htmlSingle = `<div style="text-align:center;"><b style="font-size:14px;">${namaToko}</b><br>${alamatToko}`; 
     if(headerToko) htmlSingle += `<br>${headerToko}`; 
     htmlSingle += `<br><br><b>${title}</b><br><div class="garis"></div></div>`;
-    htmlSingle += `<div>No: ${inv}<br>Tgl: ${String(trx.Waktu).substring(0,16)}<br>Kasir/Sales: ${trx.Kasir}<br>Plg: ${trx.ID_Pelanggan}<br></div>`;
+    htmlSingle += `<div>No: ${inv}<br>Tgl: ${String(trx.Waktu).substring(0,16)}<br>Kasir/Sales: ${trx.Kasir}<br>Plg: ${getNamaPelanggan(trx.ID_Pelanggan)}<br></div>`;
     htmlSingle += `<div class="garis"></div><table style="width:100%; border-collapse:collapse;">`; 
     
     det.forEach(d => { 
@@ -1720,10 +1801,10 @@ function renderTabelSO() {
             
             html += `<tr class="hover:bg-slate-50 transition">
                 <td class="p-4 pl-6 text-slate-800 font-black">
-                    #${t.ID_Invoice}<br>
-                    <span class="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100 uppercase mt-1 inline-block"><i class="fa-solid fa-store mr-1"></i>${tCabang}</span>
+                    <span onclick="lihatDetailInvoice('${escapeJsStr(t.ID_Invoice)}')" class="cursor-pointer text-blue-600 hover:underline">#${escapeHtml(t.ID_Invoice)}</span><br>
+                    <span class="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100 uppercase mt-1 inline-block"><i class="fa-solid fa-store mr-1"></i>${escapeHtml(tCabang)}</span>
                 </td>
-                <td class="p-4"><p class="text-[10px] text-slate-400 font-bold">${String(t.Waktu).substring(0,16)}</p><p class="text-sm text-blue-600">${t.ID_Pelanggan}</p></td>
+                <td class="p-4"><p class="text-[10px] text-slate-400 font-bold">${String(t.Waktu).substring(0,16)}</p><p class="text-sm text-blue-600">${escapeHtml(getNamaPelanggan(t.ID_Pelanggan))}</p></td>
                 <td class="p-4">
                     <p class="text-emerald-600 font-black">${formatRp(t.Total_Akhir)}</p>
                     <p class="text-[10px] font-bold text-orange-500 mt-1">DP: ${formatRp(dpVal)} | Sisa: <span class="text-red-500">${formatRp(sisaVal)}</span></p>
@@ -2381,7 +2462,7 @@ function viewStok() {
                 </table>
             </div> 
         </div> 
-        <div id="stok-lacak" class="hidden flex-1"><div class="bg-slate-50 p-6 rounded-2xl shadow-sm border border-slate-200 max-w-lg mx-auto mt-6"><h3 class="font-bold text-center mb-4 text-lg">Pelacakan Posisi IMEI / Barcode</h3><div class="flex gap-2 mb-4"><input type="text" id="input-lacak-imei" placeholder="Scan/Ketik Barcode IMEI HP..." class="w-full border border-slate-300 p-3.5 rounded-xl font-bold bg-white focus:border-blue-500 outline-none"><button onclick="bukaKamera('lacak')" class="bg-blue-600 hover:bg-blue-700 text-white px-5 rounded-xl shadow-md transition" title="Scan Kamera"><i class="fa-solid fa-camera text-xl"></i></button></div><button onclick="lacakImeiBarang()" class="w-full bg-blue-600 text-white font-bold py-3.5 rounded-xl shadow-md hover:bg-blue-700 transition"><i class="fa-solid fa-search mr-2"></i>Lacak Posisi Sekarang</button></div><div id="hasil-lacak-imei" class="mt-6 hidden max-w-2xl mx-auto space-y-3"></div></div> 
+        <div id="stok-lacak" class="hidden flex-1"><div class="bg-slate-50 p-6 rounded-2xl shadow-sm border border-slate-200 max-w-lg mx-auto mt-6"><h3 class="font-bold text-center mb-4 text-lg">Pelacakan Posisi IMEI / Barcode</h3><div class="flex gap-2 mb-4"><input type="text" id="input-lacak-imei" onkeypress="if(event.key==='Enter') lacakImeiBarang()" placeholder="Scan/Ketik Barcode IMEI HP..." class="w-full border border-slate-300 p-3.5 rounded-xl font-bold bg-white focus:border-blue-500 outline-none"><button onclick="bukaKamera('lacak')" class="bg-blue-600 hover:bg-blue-700 text-white px-5 rounded-xl shadow-md transition" title="Scan Kamera"><i class="fa-solid fa-camera text-xl"></i></button></div><button onclick="lacakImeiBarang()" class="w-full bg-blue-600 text-white font-bold py-3.5 rounded-xl shadow-md hover:bg-blue-700 transition"><i class="fa-solid fa-search mr-2"></i>Lacak Posisi Sekarang</button></div><div id="hasil-lacak-imei" class="mt-6 hidden max-w-2xl mx-auto space-y-3"></div></div> 
         
         <div id="stok-transfer" class="hidden flex-1 overflow-y-auto">
             <div class="bg-slate-50 p-5 md:p-6 rounded-2xl shadow-sm border border-slate-200 max-w-5xl mx-auto mt-2">
@@ -2437,12 +2518,15 @@ function viewStok() {
                         </div>
                         <div id="tf-prd-dropdown" class="hidden absolute top-full left-0 w-full mt-1.5 bg-white border-2 border-indigo-200 rounded-2xl shadow-2xl z-50 flex-col overflow-hidden max-h-96">
                             <div class="p-3 border-b border-slate-100 sticky top-0 bg-slate-50 space-y-2">
-                                <div class="relative">
-                                    <i class="fa-solid fa-search absolute left-3 top-2.5 text-slate-400 text-xs"></i>
-                                    <input type="text" id="tf-prd-search" onkeyup="filterListTf()" class="w-full bg-white border border-slate-300 p-2 pl-8 rounded-lg text-xs font-bold outline-none focus:border-indigo-500" placeholder="Ketik Nama Produk / Tipe / IMEI / Warna..." autocomplete="off">
+                                <div class="flex gap-2">
+                                    <select id="tf-prd-kat" onchange="filterListTf()" class="border border-slate-300 bg-white p-2 rounded-lg text-xs font-bold outline-none focus:border-indigo-500 w-36 shrink-0">${opsiKat}</select>
+                                    <div class="relative flex-1">
+                                        <i class="fa-solid fa-search absolute left-3 top-2.5 text-slate-400 text-xs"></i>
+                                        <input type="text" id="tf-prd-search" onkeyup="filterListTf()" class="w-full bg-white border border-slate-300 p-2 pl-8 rounded-lg text-xs font-bold outline-none focus:border-indigo-500" placeholder="Ketik Nama Produk / Tipe / IMEI / Warna..." autocomplete="off">
+                                    </div>
                                 </div>
                                 <div class="flex justify-between items-center gap-2">
-                                    <span class="text-[10px] font-bold text-slate-500"><i class="fa-solid fa-hand-pointer text-indigo-500 mr-1"></i>Klik item untuk tambah/batal (bisa pilih banyak sekaligus)</span>
+                                    <span class="text-[10px] font-bold text-slate-500"><i class="fa-solid fa-hand-pointer text-indigo-500 mr-1"></i>Klik per IMEI atau pilih per kelompok tipe sekaligus</span>
                                     <div class="flex gap-1.5 shrink-0">
                                         <button type="button" onclick="pilihSemuaHasilFilterTf()" class="bg-indigo-50 hover:bg-indigo-600 text-indigo-600 hover:text-white border border-indigo-200 text-[10px] font-black px-2.5 py-1 rounded-lg transition"><i class="fa-solid fa-check-double mr-1"></i>Pilih Semua Hasil Cari</button>
                                         <button type="button" onclick="toggleTfDropdown()" class="bg-slate-800 hover:bg-black text-white text-[10px] font-black px-3 py-1 rounded-lg transition">Selesai</button>
@@ -2522,6 +2606,8 @@ function getFilteredProdukForTf(searchVal = "") {
     let roleNorm = String(state.role).toUpperCase().replace(/\s+/g, '');
     let myCab = String(state.cabang || 'Pusat').toUpperCase().trim();
     let filterAsal = getSelectedCabangAsalTf().toUpperCase().trim();
+    let katEl = document.getElementById('tf-prd-kat');
+    let filterKat = katEl ? String(katEl.value || 'SEMUA').toUpperCase().trim() : 'SEMUA';
 
     let prodList = state.data.produk ? [...state.data.produk].sort((a, b) => {
         let cmp = String(a.Nama_Produk || '').localeCompare(String(b.Nama_Produk || ''));
@@ -2538,6 +2624,10 @@ function getFilteredProdukForTf(searchVal = "") {
             if (filterAsal !== 'SEMUA' && pCabang !== filterAsal) return false;
         }
 
+        if (filterKat !== 'SEMUA' && String(p.Kategori || '').toUpperCase().trim() !== filterKat) {
+            return false;
+        }
+
         if (searchVal) {
             let s = searchVal.toLowerCase().trim();
             return String(p.Nama_Produk || '').toLowerCase().includes(s) ||
@@ -2548,6 +2638,46 @@ function getFilteredProdukForTf(searchVal = "") {
         }
         return true;
     });
+}
+
+function pilihSemuaPerTipeTf(namaPrdNorm, cabangNorm) {
+    if (!state.keranjangTransfer) state.keranjangTransfer = [];
+    let search = document.getElementById('tf-prd-search');
+    let val = search ? search.value : "";
+    let filtered = getFilteredProdukForTf(val).filter(p =>
+        String(p.Nama_Produk || '').trim().toUpperCase() === namaPrdNorm &&
+        String(p.Cabang || 'Pusat').trim().toUpperCase() === cabangNorm
+    );
+    if (filtered.length === 0) return;
+
+    let allInCart = filtered.every(p => state.keranjangTransfer.some(k => String(k.id_produk) === String(p.ID_Produk)));
+    if (allInCart) {
+        let idsToRemove = new Set(filtered.map(p => String(p.ID_Produk)));
+        state.keranjangTransfer = state.keranjangTransfer.filter(k => !idsToRemove.has(String(k.id_produk)));
+        showInlineNotif('info', `Semua unit '${filtered[0].Nama_Produk}' dibatalkan dari daftar transfer.`);
+    } else {
+        let added = 0;
+        filtered.forEach(prd => {
+            if (!state.keranjangTransfer.some(k => String(k.id_produk) === String(prd.ID_Produk))) {
+                let hasImei = prd.Barcode && String(prd.Barcode).trim() !== '' && String(prd.Barcode).trim() !== '-';
+                state.keranjangTransfer.push({
+                    id_produk: prd.ID_Produk,
+                    nama: prd.Nama_Produk,
+                    kategori: prd.Kategori || 'Umum',
+                    barcode: hasImei ? String(prd.Barcode).trim() : '-',
+                    warna: (prd.Warna && prd.Warna !== '-') ? prd.Warna : '-',
+                    satuan: prd.Satuan || 'Unit',
+                    cabang_asal: prd.Cabang || state.cabang || 'Pusat',
+                    stok_tersedia: parseFloat(prd.Stok_Saat_Ini) || 1,
+                    qty: 1
+                });
+                added++;
+            }
+        });
+        showInlineNotif('success', `${added} unit/IMEI '${filtered[0].Nama_Produk}' ditambahkan ke daftar transfer!`);
+    }
+    filterListTf();
+    renderKeranjangTransfer();
 }
 
 function renderListTf(searchVal = "") {
@@ -2564,12 +2694,17 @@ function renderListTf(searchVal = "") {
 
     // Hitung jumlah unit per Nama_Produk di hasil filter untuk memudahkan identifikasi barang bernama sama dengan banyak IMEI
     let groupCountMap = {};
+    let groupSelectedMap = {};
     filtered.forEach(p => {
         let key = String(p.Nama_Produk || '').trim().toUpperCase() + '__' + String(p.Cabang || 'Pusat').trim().toUpperCase();
         groupCountMap[key] = (groupCountMap[key] || 0) + 1;
+        if (state.keranjangTransfer.some(k => String(k.id_produk) === String(p.ID_Produk))) {
+            groupSelectedMap[key] = (groupSelectedMap[key] || 0) + 1;
+        }
     });
 
     let html = "";
+    let lastGroupKey = "";
     filtered.forEach(p => {
         let stokTersedia = parseFloat(p.Stok_Saat_Ini) || 0;
         let hasImei = p.Barcode && String(p.Barcode).trim() !== '' && String(p.Barcode).trim() !== '-';
@@ -2577,18 +2712,41 @@ function renderListTf(searchVal = "") {
         let inCartIdx = state.keranjangTransfer.findIndex(k => String(k.id_produk) === String(p.ID_Produk));
         let inCartItem = inCartIdx > -1 ? state.keranjangTransfer[inCartIdx] : null;
 
-        let key = String(p.Nama_Produk || '').trim().toUpperCase() + '__' + String(p.Cabang || 'Pusat').trim().toUpperCase();
+        let pNameNorm = String(p.Nama_Produk || '').trim().toUpperCase();
+        let pCabNorm = String(p.Cabang || 'Pusat').trim().toUpperCase();
+        let key = pNameNorm + '__' + pCabNorm;
         let sameTypeCount = groupCountMap[key] || 1;
+        let selectedInGroup = groupSelectedMap[key] || 0;
+
+        if (sameTypeCount > 1 && key !== lastGroupKey) {
+            lastGroupKey = key;
+            let allGroupSelected = selectedInGroup === sameTypeCount;
+            let btnGroupClass = allGroupSelected
+                ? "bg-emerald-600 text-white hover:bg-red-500"
+                : "bg-indigo-600 text-white hover:bg-indigo-700";
+            let btnGroupLabel = allGroupSelected
+                ? `<i class="fa-solid fa-check-double mr-1"></i>Terpilih Semua (${selectedInGroup}/${sameTypeCount})`
+                : `<i class="fa-solid fa-layer-group mr-1"></i>+ Pilih Semua Tipe Ini (${selectedInGroup}/${sameTypeCount} IMEI)`;
+            html += `<div class="bg-indigo-50/90 border border-indigo-200 px-3 py-2 rounded-xl flex justify-between items-center mt-2">
+                <div>
+                    <p class="text-xs font-black text-indigo-900"><i class="fa-solid fa-boxes-stacked text-indigo-600 mr-1.5"></i>${escapeHtml(p.Nama_Produk)}</p>
+                    <p class="text-[10px] font-bold text-indigo-600">${sameTypeCount} Unit dengan IMEI Berbeda Tersedia di ${escapeHtml(p.Cabang || 'Pusat')}</p>
+                </div>
+                <button type="button" onclick="pilihSemuaPerTipeTf('${escapeJsStr(pNameNorm)}', '${escapeJsStr(pCabNorm)}')" class="${btnGroupClass} text-[10px] font-black px-2.5 py-1.5 rounded-lg shadow-sm transition shrink-0">${btnGroupLabel}</button>
+            </div>`;
+        } else if (sameTypeCount === 1) {
+            lastGroupKey = key;
+        }
 
         let infoImei = hasImei
-            ? `<span class="text-[10px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded font-mono font-black border border-indigo-200 mt-1 inline-block"><i class="fa-solid fa-barcode mr-1"></i>IMEI/SN: ${p.Barcode}</span>`
-            : `<span class="text-[9px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-mono border border-slate-200 mt-1 inline-block">ID: ${p.ID_Produk} (Non-IMEI)</span>`;
+            ? `<span class="text-[10px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded font-mono font-black border border-indigo-200 mt-1 inline-block"><i class="fa-solid fa-barcode mr-1"></i>IMEI/SN: ${escapeHtml(p.Barcode)}</span>`
+            : `<span class="text-[9px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-mono border border-slate-200 mt-1 inline-block">ID: ${escapeHtml(p.ID_Produk)} (Non-IMEI)</span>`;
         let infoWarna = (p.Warna && p.Warna !== '-')
-            ? `<span class="text-[9px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded font-bold border border-amber-200 mt-1 inline-block ml-1"><i class="fa-solid fa-palette mr-1"></i>${p.Warna}</span>`
+            ? `<span class="text-[9px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded font-bold border border-amber-200 mt-1 inline-block ml-1"><i class="fa-solid fa-palette mr-1"></i>${escapeHtml(p.Warna)}</span>`
             : '';
-        let infoCabang = `<span class="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded font-bold border border-blue-100 mt-1 inline-block ml-1 uppercase"><i class="fa-solid fa-store mr-1"></i>${p.Cabang || 'Pusat'}</span>`;
+        let infoCabang = `<span class="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded font-bold border border-blue-100 mt-1 inline-block ml-1 uppercase"><i class="fa-solid fa-store mr-1"></i>${escapeHtml(p.Cabang || 'Pusat')}</span>`;
         let infoMultiImeiTag = sameTypeCount > 1
-            ? `<span class="text-[9px] bg-purple-50 text-purple-600 px-1.5 py-0.5 rounded font-black border border-purple-200 ml-1">${sameTypeCount} IMEI Tersedia</span>`
+            ? `<span class="text-[9px] bg-purple-50 text-purple-600 px-1.5 py-0.5 rounded font-black border border-purple-200 ml-1">IMEI Unik</span>`
             : '';
 
         let rowBg = inCartItem ? "bg-emerald-50/70 border border-emerald-200" : "hover:bg-indigo-50/60 border border-transparent";
@@ -2603,14 +2761,14 @@ function renderListTf(searchVal = "") {
             actionBadge = `<span class="text-[10px] font-black text-indigo-600 bg-indigo-50 group-hover:bg-indigo-600 group-hover:text-white border border-indigo-200 px-2.5 py-1 rounded-lg transition inline-flex items-center gap-1"><i class="fa-solid fa-plus"></i> Pilih</span>`;
         }
 
-        let safeId = String(p.ID_Produk).replace(/'/g, "\\'");
-        html += `<div onclick="pilihProdukTf('${safeId}')" class="p-2.5 rounded-xl cursor-pointer transition flex justify-between items-center group ${rowBg}">
+        let safeId = escapeJsStr(p.ID_Produk);
+        html += `<div onclick="pilihProdukTf('${safeId}')" class="p-2.5 rounded-xl cursor-pointer transition flex justify-between items-center group ${rowBg} ${sameTypeCount > 1 ? 'ml-3 border-l-4 border-l-indigo-200' : ''}">
             <div class="flex-1 pr-3">
-                <p class="font-black text-xs text-slate-800 group-hover:text-indigo-700 leading-tight">${p.Nama_Produk} ${infoMultiImeiTag}</p>
+                <p class="font-black text-xs text-slate-800 group-hover:text-indigo-700 leading-tight">${escapeHtml(p.Nama_Produk)} ${infoMultiImeiTag}</p>
                 <div class="flex flex-wrap items-center gap-0.5">${infoImei}${infoWarna}${infoCabang}</div>
             </div>
             <div class="text-right shrink-0 flex flex-col items-end gap-1">
-                <span class="text-[10px] font-bold text-slate-500">Stok: <b class="text-emerald-600">${stokTersedia} ${p.Satuan || 'Unit'}</b></span>
+                <span class="text-[10px] font-bold text-slate-500">Stok: <b class="text-emerald-600">${stokTersedia} ${escapeHtml(p.Satuan || 'Unit')}</b></span>
                 ${actionBadge}
             </div>
         </div>`;
@@ -3110,7 +3268,11 @@ function filterStokUI() {
             if (roleNorm !== 'SUPERADMIN' && mCabang !== myCab) return;
             if (roleNorm === 'SUPERADMIN' && fCab !== 'SEMUA' && mCabang !== fCab) return;
             let col = String(m.Jenis_Pergerakan).toUpperCase().includes('MASUK') ? 'text-emerald-500' : 'text-red-500'; 
-            hM += `<tr class="hover:bg-slate-50 transition"><td class="p-4 pl-6 text-xs text-slate-400 font-bold">${String(m.Waktu).substring(0, 16)}<br><span class="text-[10px] text-blue-500 uppercase"><i class="fa-solid fa-store mr-1"></i>${rawCabang}</span></td><td class="p-4 font-bold text-slate-800">${m.ID_Produk}</td><td class="p-4 font-black ${col}">${m.Jenis_Pergerakan} <span class="bg-slate-100 px-2 py-1 rounded text-slate-600 ml-2 border border-slate-200">${m.Jumlah}</span></td><td class="p-4 text-xs text-slate-500 font-bold">${m.Keterangan}</td></tr>`; 
+            let prdMut = state.data.produk ? state.data.produk.find(p => String(p.ID_Produk) === String(m.ID_Produk)) : null;
+            let prdLabelMut = prdMut
+                ? `<p class="font-bold text-slate-800">${escapeHtml(prdMut.Nama_Produk)}</p><p class="text-[10px] font-mono text-slate-400">${escapeHtml(m.ID_Produk)}${prdMut.Barcode && prdMut.Barcode !== '-' ? ' | IMEI: ' + escapeHtml(prdMut.Barcode) : ''}</p>`
+                : `<p class="font-bold text-slate-800">${escapeHtml(m.ID_Produk)}</p>`;
+            hM += `<tr class="hover:bg-slate-50 transition"><td class="p-4 pl-6 text-xs text-slate-400 font-bold">${String(m.Waktu).substring(0, 16)}<br><span class="text-[10px] text-blue-500 uppercase"><i class="fa-solid fa-store mr-1"></i>${escapeHtml(rawCabang)}</span></td><td class="p-4">${prdLabelMut}</td><td class="p-4 font-black ${col}">${escapeHtml(m.Jenis_Pergerakan)} <span class="bg-slate-100 px-2 py-1 rounded text-slate-600 ml-2 border border-slate-200">${m.Jumlah}</span></td><td class="p-4 text-xs text-slate-500 font-bold">${escapeHtml(m.Keterangan)}</td></tr>`; 
         }); 
     } 
     
@@ -3194,7 +3356,7 @@ async function simpanOpnameMassal() {
                                 fisik: alloc, 
                                 selisih: diff, 
                                 keterangan: ket, 
-                                cabang: state.cabang 
+                                cabang: p.Cabang || g.Cabang || state.cabang 
                             }); 
                         }
                     }
@@ -3442,13 +3604,30 @@ async function prosesTransferGudang() {
     }
 }
 
-function cetakSuratJalanTransfer() {
+async function cetakSuratJalanTransfer() {
     let sj = window.lastTransferReceipt;
     if (!sj || !sj.items || sj.items.length === 0) {
         return showInlineNotif('error', 'Belum ada riwayat transfer cabang pada sesi ini untuk dicetak!');
     }
 
     let namaToko = localStorage.getItem('sanstech_nama_toko') || "BLANGKON ERP";
+
+    if (btCharacteristic) {
+        let strukSingle = `\n${namaToko}\nSURAT JALAN TRANSFER CABANG\n--------------------------------\nNo: ${sj.id_sj}\nTgl: ${sj.waktu}\nDari: ${sj.cabang_asal}\nTujuan: ${sj.cabang_tujuan}\nOleh: ${sj.oleh}\n--------------------------------\n`;
+        sj.items.forEach((item, idx) => {
+            strukSingle += `${idx + 1}. ${item.nama} (${item.qty} ${item.satuan})\n`;
+            if (item.barcode && item.barcode !== '-') strukSingle += `   IMEI: ${item.barcode}\n`;
+            if (item.warna && item.warna !== '-') strukSingle += `   Warna: ${item.warna}\n`;
+        });
+        strukSingle += `--------------------------------\nTOTAL KIRIM: ${sj.total_unit} Unit\n--------------------------------\n\n`;
+        let teksGanda = strukSingle + `- - - - - (Potong) - - - - -\n` + strukSingle + `\n\n`;
+        let ok = await cetakStrukBluetooth(teksGanda);
+        if (ok) {
+            showInlineNotif('success', 'Surat Jalan Transfer (2 Copy) Tercetak via Bluetooth!');
+            return;
+        }
+    }
+
     let iframe = document.getElementById('print-iframe');
     let doc = iframe.contentWindow.document;
 
@@ -3516,12 +3695,14 @@ function cetakSuratJalanTransfer() {
 function lacakImeiBarang() { 
   let val = document.getElementById('input-lacak-imei').value.trim(); 
   if(!val) return showInlineNotif('error', "Masukkan Barcode / IMEI!"); 
-  let prdList = state.data.produk.filter(x => String(x.Barcode) === val || String(x.ID_Produk) === val); 
+  let valLow = val.toLowerCase();
+  let prdList = state.data.produk.filter(x => String(x.Barcode || '').trim().toLowerCase() === valLow || String(x.ID_Produk || '').trim().toLowerCase() === valLow); 
   let prd = prdList.find(x => parseFloat(x.Stok_Saat_Ini) > 0) || prdList[0];
   if(!prd) { document.getElementById('hasil-lacak-imei').innerHTML = `<p class="text-center text-red-500 font-bold p-4 bg-red-50 rounded-xl border border-red-200">Data IMEI tidak ditemukan di sistem!</p>`; document.getElementById('hasil-lacak-imei').classList.remove('hidden'); return; } 
-  let history = state.data.stok ? state.data.stok.filter(x => String(x.ID_Produk) === String(prd.ID_Produk)) : []; 
-  let html = ` <div class="text-center mb-4 border-b pb-4"> <h4 class="font-black text-slate-800 text-lg mb-2">Hasil Lacak:<br><span class="text-blue-600">${prd.Nama_Produk}</span></h4> <div class="inline-block bg-blue-50 border border-blue-200 px-4 py-2 rounded-xl mt-1 shadow-sm text-left"> <p class="text-xs font-bold text-blue-700 mb-1"><i class="fa-solid fa-location-dot mr-2"></i>Posisi Saat Ini: <span class="font-black uppercase">${prd.Cabang || 'Pusat'}</span></p> <p class="text-xs font-bold text-blue-700"><i class="fa-solid fa-box mr-2"></i>Sisa Stok Aktual: <span class="font-black">${prd.Stok_Saat_Ini} ${prd.Satuan || ''}</span></p> </div> </div>`; 
-  if(history.length === 0) { html += `<p class="text-center text-slate-500 font-bold bg-slate-50 p-4 rounded-xl">Belum ada riwayat pergerakan.</p>`; } else { history.slice().reverse().forEach(h => { let isOut = parseFloat(h.Jumlah) < 0; let icon = isOut ? '<i class="fa-solid fa-arrow-up-right-from-square text-red-500"></i>' : '<i class="fa-solid fa-arrow-down-to-bracket text-emerald-500"></i>'; html += ` <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4 mb-3 hover:bg-slate-50 transition"> <div class="w-10 h-10 rounded-full bg-slate-50 border border-slate-100 flex items-center justify-center text-xl shrink-0">${icon}</div> <div class="flex-1"> <p class="font-bold text-sm text-slate-800">${h.Keterangan}</p> <div class="flex items-center gap-2 mt-1.5 flex-wrap"> <span class="bg-slate-100 text-slate-600 text-[10px] px-2 py-0.5 rounded border border-slate-200 font-black uppercase"><i class="fa-solid fa-store mr-1 text-slate-400"></i> ${h.Cabang || 'Pusat'}</span> <p class="text-[10px] font-bold text-slate-400">${String(h.Waktu).substring(0,16)}</p> </div> </div> <div class="text-right font-black text-xl ${isOut?'text-red-500':'text-emerald-500'}">${h.Jumlah>0?'+'+h.Jumlah:h.Jumlah}</div> </div>`; }); } 
+  let allMatchIds = new Set(prdList.map(x => String(x.ID_Produk)));
+  let history = state.data.stok ? state.data.stok.filter(x => allMatchIds.has(String(x.ID_Produk))) : []; 
+  let html = ` <div class="text-center mb-4 border-b pb-4"> <h4 class="font-black text-slate-800 text-lg mb-2">Hasil Lacak:<br><span class="text-blue-600">${escapeHtml(prd.Nama_Produk)}</span></h4> <div class="inline-block bg-blue-50 border border-blue-200 px-4 py-2 rounded-xl mt-1 shadow-sm text-left"> <p class="text-xs font-bold text-blue-700 mb-1"><i class="fa-solid fa-barcode mr-2"></i>IMEI / ID: <span class="font-black font-mono">${escapeHtml(prd.Barcode && prd.Barcode !== '-' ? prd.Barcode : prd.ID_Produk)}</span></p> <p class="text-xs font-bold text-blue-700 mb-1"><i class="fa-solid fa-location-dot mr-2"></i>Posisi Saat Ini: <span class="font-black uppercase">${escapeHtml(prd.Cabang || 'Pusat')}</span></p> <p class="text-xs font-bold text-blue-700"><i class="fa-solid fa-box mr-2"></i>Sisa Stok Aktual: <span class="font-black">${prd.Stok_Saat_Ini} ${escapeHtml(prd.Satuan || '')}</span></p> </div> </div>`; 
+  if(history.length === 0) { html += `<p class="text-center text-slate-500 font-bold bg-slate-50 p-4 rounded-xl">Belum ada riwayat pergerakan.</p>`; } else { history.slice().reverse().forEach(h => { let isOut = parseFloat(h.Jumlah) < 0; let icon = isOut ? '<i class="fa-solid fa-arrow-up-right-from-square text-red-500"></i>' : '<i class="fa-solid fa-arrow-down-to-bracket text-emerald-500"></i>'; html += ` <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4 mb-3 hover:bg-slate-50 transition"> <div class="w-10 h-10 rounded-full bg-slate-50 border border-slate-100 flex items-center justify-center text-xl shrink-0">${icon}</div> <div class="flex-1"> <p class="font-bold text-sm text-slate-800">${escapeHtml(h.Keterangan)}</p> <div class="flex items-center gap-2 mt-1.5 flex-wrap"> <span class="bg-slate-100 text-slate-600 text-[10px] px-2 py-0.5 rounded border border-slate-200 font-black uppercase"><i class="fa-solid fa-store mr-1 text-slate-400"></i> ${escapeHtml(h.Cabang || 'Pusat')}</span> <p class="text-[10px] font-bold text-slate-400">${String(h.Waktu).substring(0,16)}</p> </div> </div> <div class="text-right font-black text-xl ${isOut?'text-red-500':'text-emerald-500'}">${h.Jumlah>0?'+'+h.Jumlah:h.Jumlah}</div> </div>`; }); } 
   document.getElementById('hasil-lacak-imei').innerHTML = html; document.getElementById('hasil-lacak-imei').classList.remove('hidden'); 
 }
 
@@ -3840,7 +4021,7 @@ function lihatRiwayatSupplier(id) {
             html += `<tr class="hover:bg-slate-50 transition">
                 <td class="p-3 pl-4 font-bold text-slate-700">
                     <span class="text-[10px] text-slate-400 font-normal">${String(r.Waktu).substring(0,16)}</span><br>
-                    <span class="text-blue-600 text-xs">${r.ID_PO}</span>
+                    <a href="javascript:void(0)" onclick="lihatDetailPO('${escapeJsStr(r.ID_PO)}')" class="text-blue-600 hover:underline text-xs" title="Klik lihat detail PO">${escapeHtml(r.ID_PO)}</a>
                 </td>
                 <td class="p-3 font-black text-slate-800">${formatRp(nominal)}</td>
                 <td class="p-3 text-center"><span class="px-2 py-1 rounded text-[9px] font-black uppercase border ${stClass}">${r.Status_Bayar}</span></td>
@@ -3883,7 +4064,7 @@ function viewPembelian() {
                     <div class="flex gap-2 mb-4">
                         <select id="po-prd-select" class="flex-1 border border-slate-200 p-2 rounded-lg text-sm font-bold outline-none focus:border-blue-500">
                             <option value="">-- Pilih Produk --</option>
-                            ${state.data.produk ? state.data.produk.map(p => `<option value="${p.ID_Produk}">${p.Nama_Produk} (Modal: ${formatRp(p.Harga_Beli)})</option>`).join('') : ''}
+                            ${state.data.produk ? state.data.produk.map(p => `<option value="${escapeHtml(p.ID_Produk)}">${escapeHtml(p.Nama_Produk)}${p.Barcode && p.Barcode !== '-' ? ' [' + escapeHtml(p.Barcode) + ']' : ''}${p.Warna && p.Warna !== '-' ? ' (' + escapeHtml(p.Warna) + ')' : ''} - Modal: ${formatRp(p.Harga_Beli)} (${escapeHtml(p.Cabang || 'Pusat')})</option>`).join('') : ''}
                         </select>
                         <input type="number" id="po-prd-qty" placeholder="Qty" class="w-20 border border-slate-200 p-2 rounded-lg text-sm font-bold text-center outline-none focus:border-blue-500">
                         <button onclick="tambahItemPO()" class="bg-blue-600 hover:bg-blue-700 transition text-white px-3 rounded-lg"><i class="fa-solid fa-plus"></i></button>
@@ -4002,14 +4183,21 @@ async function eksekusiReturPO(id) {
 function tambahItemPO() {      let id = document.getElementById('po-prd-select').value;      let qty = parseFloat(document.getElementById('po-prd-qty').value);      if(!id || !qty || qty <= 0) return showInlineNotif('error', 'Pilih produk dan isi Qty!');      let prd = state.data.produk.find(p => p.ID_Produk === id);      if(prd) {          let hb = parseFloat(prd.Harga_Beli||0);          let idxAda = state.keranjangPO.findIndex(x => String(x.id_produk) === String(prd.ID_Produk));         if(idxAda > -1) {             state.keranjangPO[idxAda].qty += qty;             state.keranjangPO[idxAda].total = state.keranjangPO[idxAda].qty * state.keranjangPO[idxAda].harga_beli;         } else {             state.keranjangPO.push({ id_produk: prd.ID_Produk, nama: prd.Nama_Produk, qty: qty, harga_beli: hb, total: hb * qty });          }         document.getElementById('po-prd-qty').value = "";          renderKeranjangPO();      }  }
 function hapusItemPO(idx) { state.keranjangPO.splice(idx, 1); renderKeranjangPO(); }
 function renderKeranjangPO() { let html = "", sum = 0, jml = 0; if(state.keranjangPO.length === 0) { html = `<div class="text-center py-5 text-slate-300"><p class="text-xs font-bold">Belum ada item ditambahkan</p></div>`; } else { state.keranjangPO.forEach((k,i) => { sum+=k.total; jml+=k.qty; html += `<div class="p-2 border border-slate-100 rounded bg-slate-50 flex justify-between items-center"><div class="flex-1"><p class="text-xs font-bold text-slate-700">${k.nama}</p><p class="text-[10px] text-slate-400">${k.qty} x ${formatRp(k.harga_beli)}</p></div><div class="flex items-center gap-2"><p class="text-xs font-black text-blue-600">${formatRp(k.total)}</p><button onclick="hapusItemPO(${i})" class="text-red-500 px-2 hover:bg-red-100 rounded transition"><i class="fa-solid fa-xmark"></i></button></div></div>`; }); } let el = document.getElementById('po-cart-ui'); if(el) el.innerHTML = html; if(document.getElementById('po-sum-item')) { document.getElementById('po-sum-item').innerText = jml; document.getElementById('po-sum-rp').innerText = formatRp(sum); } }
+let isSavingPO = false;
 async function simpanDataPO() { 
+    if (isSavingPO) return;
     let sup = document.getElementById('po-sup').value; let stat = document.getElementById('po-status').value; 
     if(!sup) return showInlineNotif('error', 'Supplier wajib dipilih!'); if(state.keranjangPO.length === 0) return showInlineNotif('error', 'List PO kosong!'); 
-    let totalNominal = state.keranjangPO.reduce((sum, item) => sum + item.total, 0); 
-    let payload = { id_supplier: sup, subtotal: totalNominal, total_tagihan: totalNominal, status_bayar: stat, admin: state.user, items: state.keranjangPO, cabang: state.cabang }; 
-    showInlineNotif('info', 'Memproses Pembelian...'); 
-    let res = await requestAPIWithAuth('prosesPembelianPO', payload);
-    if(res.status) { showInlineNotif('success', res.msg); state.keranjangPO = []; renderKeranjangPO(); document.getElementById('po-sup').value = ""; syncDataLiveBackground(); } else showInlineNotif('error', res.msg); 
+    isSavingPO = true;
+    try {
+        let totalNominal = state.keranjangPO.reduce((sum, item) => sum + item.total, 0); 
+        let payload = { id_supplier: sup, subtotal: totalNominal, total_tagihan: totalNominal, status_bayar: stat, admin: state.user, items: state.keranjangPO, cabang: state.cabang }; 
+        showInlineNotif('info', 'Memproses Pembelian...'); 
+        let res = await requestAPIWithAuth('prosesPembelianPO', payload);
+        if(res && res.status) { showInlineNotif('success', res.msg); state.keranjangPO = []; renderKeranjangPO(); document.getElementById('po-sup').value = ""; syncDataLiveBackground(); } else showInlineNotif('error', res ? res.msg : 'Gagal menyimpan PO'); 
+    } finally {
+        isSavingPO = false;
+    }
 }
 
 // ====================================================================
@@ -4118,7 +4306,7 @@ function renderChartLaporan() {
   
   if(state.data.penjualan) { 
       let validInvLunas = state.data.penjualan.filter(j => { 
-          let parts = String(j.Waktu).substring(0, 10).split('-'); let wkt = new Date(parts[0], parts[1]-1, parts[2], 12, 0, 0); 
+          let wkt = parseTanggalLokal(j.Waktu); 
           let jCab = String(j.Cabang || 'Pusat').toUpperCase().trim();
           let passCab = (filterCab === 'SEMUA' || jCab === filterCab);
           return wkt >= startD && wkt <= endD && j.Status === 'LUNAS' && passCab; 
@@ -4127,7 +4315,8 @@ function renderChartLaporan() {
       validInvLunas.forEach(j => {
           let total = parseFloat(j.Total_Akhir || 0);
           omsetRange += total;
-          let tgl = String(j.Waktu).substring(0,10);
+          let dW = parseTanggalLokal(j.Waktu);
+          let tgl = formatYMD(dW);
           if(!chartMap[tgl]) chartMap[tgl] = {omset:0, hpp:0};
           chartMap[tgl].omset += total;
       });
@@ -4140,11 +4329,12 @@ function renderChartLaporan() {
                   hppRange += totalHppItem;
                   let inv = validInvLunas.find(v => v.ID_Invoice === d.ID_Invoice);
                   if(inv) {
-                      let tgl = String(inv.Waktu).substring(0,10);
+                      let tgl = formatYMD(parseTanggalLokal(inv.Waktu));
                       if(chartMap[tgl]) chartMap[tgl].hpp += totalHppItem;
                   }
-                  if(!terlarisMap[d.ID_Produk]) terlarisMap[d.ID_Produk] = 0; 
-                  terlarisMap[d.ID_Produk] += parseFloat(d.Qty||0); 
+                  let namaKey = prd ? String(prd.Nama_Produk || d.ID_Produk).trim() : String(d.ID_Produk);
+                  if(!terlarisMap[namaKey]) terlarisMap[namaKey] = 0; 
+                  terlarisMap[namaKey] += parseFloat(d.Qty||0); 
                   let kat = prd ? (prd.Kategori || "Lainnya") : "Lainnya";
                   if(!kategoriMap[kat]) kategoriMap[kat] = { qty: 0, omset: 0 };
                   kategoriMap[kat].qty += parseFloat(d.Qty||0);
@@ -4183,8 +4373,7 @@ function renderChartLaporan() {
           let kCab = String(rawCabang || 'Pusat').toUpperCase().trim();
           let passCab = (filterCab === 'SEMUA' || kCab === filterCab);
           
-          let parts = String(k.Waktu).substring(0, 10).split('-'); 
-          let wkt = new Date(parts[0], parts[1]-1, parts[2], 12, 0, 0); 
+          let wkt = parseTanggalLokal(k.Waktu); 
           let passDate = (wkt >= startD && wkt <= endD);
 
           // HANYA MENGHITUNG KAS BERDASARKAN FILTER TANGGAL DAN CABANG
@@ -4237,7 +4426,7 @@ function renderChartLaporan() {
   }
   if(state.data.penjualan && state.data.penjualan_detail) { 
       let validInv = state.data.penjualan.filter(j => { 
-          let parts = String(j.Waktu).substring(0, 10).split('-'); let wkt = new Date(parts[0], parts[1]-1, parts[2], 12, 0, 0); 
+          let wkt = parseTanggalLokal(j.Waktu); 
           let jCab = String(j.Cabang || 'Pusat').toUpperCase().trim();
           let passCab = (filterCab === 'SEMUA' || jCab === filterCab);
           return wkt >= startD && wkt <= endD && j.Status !== 'RETUR' && passCab; 
@@ -4259,7 +4448,7 @@ function renderChartLaporan() {
   if(htmlRekap === "") htmlRekap = `<tr><td colspan="4" class="text-center p-4 text-slate-400">Belum ada data cabang.</td></tr>`;
   if(document.getElementById('lap-rekap-cabang')) document.getElementById('lap-rekap-cabang').innerHTML = htmlRekap;
   
-  let sortTerlaris = Object.keys(terlarisMap).map(k => ({id: k, qty: terlarisMap[k]})).sort((a,b) => b.qty - a.qty).slice(0, 5); let htmlTerlaris = ""; if(sortTerlaris.length === 0) { htmlTerlaris = `<p class="text-xs text-slate-500 text-center mt-8 font-bold">Belum ada data penjualan pada range ini.</p>`; } else { sortTerlaris.forEach((item, idx) => { let prd = state.data.produk.find(p => String(p.ID_Produk) === String(item.id)); let nama = prd ? prd.Nama_Produk : item.id; htmlTerlaris += `<div class="flex justify-between items-center p-3 bg-white border border-slate-100 rounded-xl shadow-sm"><div class="flex items-center gap-3"><div class="w-7 h-7 rounded bg-orange-100 text-orange-600 font-black text-xs flex items-center justify-center">#${idx+1}</div><p class="text-xs font-bold text-slate-700 truncate w-32 md:w-48">${nama}</p></div><p class="text-xs font-black text-blue-600">${item.qty} Terjual</p></div>`; }); } if(document.getElementById('lap-terlaris')) document.getElementById('lap-terlaris').innerHTML = htmlTerlaris; 
+  let sortTerlaris = Object.keys(terlarisMap).map(k => ({nama: k, qty: terlarisMap[k]})).sort((a,b) => b.qty - a.qty).slice(0, 5); let htmlTerlaris = ""; if(sortTerlaris.length === 0) { htmlTerlaris = `<p class="text-xs text-slate-500 text-center mt-8 font-bold">Belum ada data penjualan pada range ini.</p>`; } else { sortTerlaris.forEach((item, idx) => { htmlTerlaris += `<div class="flex justify-between items-center p-3 bg-white border border-slate-100 rounded-xl shadow-sm"><div class="flex items-center gap-3"><div class="w-7 h-7 rounded bg-orange-100 text-orange-600 font-black text-xs flex items-center justify-center">#${idx+1}</div><p class="text-xs font-bold text-slate-700 truncate w-32 md:w-48">${escapeHtml(item.nama)}</p></div><p class="text-xs font-black text-blue-600">${item.qty} Terjual</p></div>`; }); } if(document.getElementById('lap-terlaris')) document.getElementById('lap-terlaris').innerHTML = htmlTerlaris; 
   
   let canvas = document.getElementById('chartLaporanLaba'); if(!canvas) return; if(chartLaporan !== null) chartLaporan.destroy(); let ctx = canvas.getContext('2d'); chartLaporan = new Chart(ctx, { type: 'bar', data: { labels: labels, datasets: [{ label: 'Omset Kotor', data: dataPenjualan, backgroundColor: '#3b82f6', borderRadius: 4 }, { label: 'HPP (Modal)', data: dataModal, backgroundColor: '#f43f5e', borderRadius: 4 }] }, options: { responsive: true, maintainAspectRatio: false } }); 
 }
