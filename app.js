@@ -69,6 +69,7 @@ let state = {
     }, 
     keranjangPOS: [], 
     keranjangPO: [], 
+    keranjangTransfer: [],
     metodeBayar: "Tunai", 
     isSO: false, 
     posTemp: {},
@@ -98,27 +99,50 @@ function pastikanDataAman(rawData) {
 // PWA UPDATE CHECK & AUTO CACHE CLEAR
 // ====================================================================
 let updateNotified = false; // Peredam agar popup tidak muncul berkali-kali
+function tampilkanModalUpdatePWA() {
+    if (updateNotified) return;
+    updateNotified = true;
+    let mod = document.getElementById('modal-update-pwa');
+    if (mod) {
+        mod.classList.replace('hidden', 'flex');
+        setTimeout(() => {
+            mod.classList.remove('opacity-0');
+            let box = mod.querySelector('.transform');
+            if (box) box.classList.remove('scale-95');
+        }, 50);
+    }
+}
+
 function cekUpdatePWA() {
     if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('sw.js')
+        navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
             .then(registration => {
+                // Paksa cek versi terbaru ke server setiap kali aplikasi dibuka
+                registration.update().catch(() => {});
+
+                // Jika sudah ada SW baru yang waiting dari sesi sebelumnya, langsung tampilkan
+                if (registration.waiting && navigator.serviceWorker.controller) {
+                    tampilkanModalUpdatePWA();
+                }
+
                 registration.addEventListener('updatefound', () => {
                     const newWorker = registration.installing;
+                    if (!newWorker) return;
                     newWorker.addEventListener('statechange', () => {
                         if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                            if (!updateNotified) {
-                                updateNotified = true;
-                                let mod = document.getElementById('modal-update-pwa');
-                                if(mod) {
-                                    mod.classList.replace('hidden', 'flex');
-                                    setTimeout(() => {
-                                        mod.classList.remove('opacity-0');
-                                        mod.querySelector('.transform').classList.remove('scale-95');
-                                    }, 50);
-                                }
-                            }
+                            tampilkanModalUpdatePWA();
                         }
                     });
+                });
+
+                // Cek update otomatis saat aplikasi kembali dibuka / difokuskan
+                document.addEventListener('visibilitychange', () => {
+                    if (!document.hidden) {
+                        registration.update().catch(() => {});
+                        if (registration.waiting && navigator.serviceWorker.controller) {
+                            tampilkanModalUpdatePWA();
+                        }
+                    }
                 });
             })
             .catch(err => console.log('SW registration failed: ', err));
@@ -132,34 +156,52 @@ function applyUpdate() {
         btn.disabled = true;
     }
     
+    const clearAndReload = () => {
+        if ('caches' in window) {
+            caches.keys().then(function(names) {
+                return Promise.all(names.map(name => caches.delete(name)));
+            }).finally(() => {
+                window.location.reload();
+            });
+        } else {
+            window.location.reload();
+        }
+    };
+
     if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.ready.then(registration => {
-            if (registration.waiting) {
-                registration.waiting.postMessage({ type: 'SKIP_WAITING' });
-                
-                registration.waiting.addEventListener('statechange', () => {
-                    if (registration.waiting.state === 'activated') {
-                        caches.keys().then(function(names) {
-                            for (let name of names) caches.delete(name);
-                        });
-                        setTimeout(() => window.location.reload(true), 500);
+        navigator.serviceWorker.getRegistration().then(registration => {
+            if (registration && registration.waiting) {
+                const waitingWorker = registration.waiting;
+                let reloaded = false;
+                const safeReload = () => {
+                    if (reloaded) return;
+                    reloaded = true;
+                    clearAndReload();
+                };
+                waitingWorker.addEventListener('statechange', (e) => {
+                    if (e.target && e.target.state === 'activated') {
+                        safeReload();
                     }
                 });
+                waitingWorker.postMessage({ type: 'SKIP_WAITING' });
+                setTimeout(safeReload, 1200);
             } else {
-                caches.keys().then(function(names) {
-                    for (let name of names) caches.delete(name);
-                });
-                setTimeout(() => window.location.reload(true), 500);
+                clearAndReload();
             }
-        });
+        }).catch(() => clearAndReload());
     } else {
-        window.location.reload(true);
+        clearAndReload();
     }
 }
 
-navigator.serviceWorker.addEventListener('controllerchange', () => {
-    window.location.reload();
-});
+if ('serviceWorker' in navigator) {
+    let refreshingSW = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (refreshingSW) return;
+        refreshingSW = true;
+        window.location.reload();
+    });
+}
 
 window.onload = function() {
     state.data = pastikanDataAman({});
@@ -295,42 +337,26 @@ function prosesFotoBarcode(event) {
     showInlineNotif('info', 'Membaca barcode...'); 
     const html5QrCode = new Html5Qrcode("reader"); 
     html5QrCode.scanFile(file, true).then(decodedText => { 
+        let cleanCode = String(decodedText || '').trim();
         if (kameraContext === 'pos') { 
-            let prd = state.data.produk.find(p => String(p.Barcode) === decodedText || String(p.ID_Produk) === decodedText); 
+            let prdList = state.data.produk.filter(p => String(p.Barcode) === cleanCode || String(p.ID_Produk) === cleanCode); 
+            let prd = prdList.find(p => parseFloat(p.Stok_Saat_Ini) > 0) || prdList[0];
             if(prd) { 
                 eksekusiTambahKeranjang(prd); 
             } else { 
                 showInlineNotif('error', 'Barcode tidak terdaftar!'); 
             } 
         } else if (kameraContext === 'produk') { 
-            document.getElementById('prd-bc').value = decodedText; showInlineNotif('success', 'Barcode disalin!'); 
-        } else if (kameraContext === 'lacak') { 
-            document.getElementById('input-lacak-imei').value = decodedText; lacakImeiBarang(); 
-        } else if (kameraContext === 'tf') { 
-            // --- UPDATE UNTUK KAMERA TRANSFER CABANG ---
-            let prd = state.data.produk.find(p => String(p.Barcode) === decodedText || String(p.ID_Produk) === decodedText);
-            if(prd) {
-                let roleNorm = String(state.role).toUpperCase().replace(/\s+/g, '');
-                let myCab = String(state.cabang).toUpperCase().trim();
-                let pCabang = String(prd.Cabang || 'Pusat').toUpperCase().trim();
-                let isAllowed = (roleNorm === 'SUPERADMIN') ? true : (pCabang === myCab);
-                
-                if(!isAllowed) {
-                    showInlineNotif('error', 'Produk ada di cabang lain!');
-                } else if(parseFloat(prd.Stok_Saat_Ini) <= 0) {
-                    showInlineNotif('error', 'Stok produk ini kosong!');
-                } else {
-                    document.getElementById('tf-produk').value = prd.ID_Produk;
-                    let label = document.getElementById('tf-prd-label');
-                    if(label) {
-                        label.innerText = prd.Nama_Produk;
-                        label.classList.replace('text-slate-500', 'text-slate-800');
-                    }
-                    showInlineNotif('success', 'Produk terpilih otomatis dari scan kamera!');
-                }
-            } else {
-                showInlineNotif('error', 'Produk tidak dikenali di cabang ini!');
+            let bcEl = document.getElementById('prd-bc');
+            if (bcEl) {
+                bcEl.value = bcEl.value.trim() ? (bcEl.value.trim() + '\n' + cleanCode) : cleanCode;
             }
+            showInlineNotif('success', 'Barcode disalin!'); 
+        } else if (kameraContext === 'lacak') { 
+            document.getElementById('input-lacak-imei').value = cleanCode; lacakImeiBarang(); 
+        } else if (kameraContext === 'tf') { 
+            // --- UPDATE UNTUK KAMERA TRANSFER CABANG MULTI-BARANG / MULTI-IMEI ---
+            tambahProdukTransferByKode(cleanCode, true);
         } 
         event.target.value = ''; 
     }).catch(err => { 
@@ -361,18 +387,22 @@ async function eksekusiLogin() {
         state.token = res.token;
         if(res.data) { state.data = pastikanDataAman(res.data); } 
         bukaAppScreen(); 
-        syncDataLiveBackground();
         showInlineNotif('info', 'Menyinkronkan data terbaru dari Cloud...');
     } else { 
         errMsg.innerText = res ? res.msg : "Terjadi kesalahan Server API."; errMsg.classList.remove('hidden'); 
     }
 }
-async function syncDataLiveBackground() { 
+async function syncDataLiveBackground(isSilent = false) { 
     if (isSyncing) return; 
     isSyncing = true;
     
     let loader = document.getElementById('global-loader');
-    if (loader) loader.classList.replace('hidden', 'flex');
+    if (loader && !isSilent) {
+        let pList = loader.querySelectorAll('p');
+        if (pList[0]) pList[0].innerText = "SINKRONISASI...";
+        if (pList[1]) pList[1].innerText = "Menyimpan & Menarik Data Terbaru";
+        loader.classList.replace('hidden', 'flex');
+    }
     
     let el = document.getElementById('sync-status'); 
     if(el) el.innerHTML = '<i class="fa-solid fa-rotate fa-spin text-blue-500"></i> Syncing...'; 
@@ -385,8 +415,8 @@ async function syncDataLiveBackground() {
         }
 
         let res = await requestAPIWithAuth('tarikDataLiveSystem', {role: state.role, cabang: state.cabang, _t: new Date().getTime()});
-        let cekData = res.data ? res.data : res;
-        if(res && !res.msg && (cekData.produk || cekData.penjualan || cekData.pelanggan || cekData.stok)) { 
+        let cekData = (res && res.data) ? res.data : res;
+        if(res && !res.msg && cekData && (cekData.produk || cekData.penjualan || cekData.pelanggan || cekData.stok)) { 
             let cleanData = pastikanDataAman(cekData); 
             
             let roleNorm = String(state.role).toUpperCase().replace(/\s+/g, '');
@@ -395,14 +425,41 @@ async function syncDataLiveBackground() {
                 let sFilter = (arr) => arr.filter(item => String(item.Cabang || 'Pusat').toUpperCase().trim() === myCab);
                 cleanData.produk = sFilter(cleanData.produk);
                 cleanData.penjualan = sFilter(cleanData.penjualan);
-                cleanData.penjualan_detail = sFilter(cleanData.penjualan_detail);
+
+                // Smart Sync untuk Penjualan Detail & Keuangan yang kolom Cabang-nya kosong dari backend
+                let validInvSet = new Set(cleanData.penjualan.map(p => String(p.ID_Invoice)));
+                let validPoSet = new Set((cleanData.pembelian || []).filter(p => String(p.Cabang || 'Pusat').toUpperCase().trim() === myCab).map(p => String(p.ID_PO)));
+
+                cleanData.penjualan_detail = cleanData.penjualan_detail.filter(d => {
+                    let dCab = String(d.Cabang || '').toUpperCase().trim();
+                    if (dCab && dCab !== '-') return dCab === myCab;
+                    return validInvSet.has(String(d.ID_Invoice));
+                });
+
                 cleanData.stok = sFilter(cleanData.stok);
-                cleanData.keuangan = sFilter(cleanData.keuangan);
+
+                cleanData.keuangan = cleanData.keuangan.filter(k => {
+                    let kCab = String(k.Cabang || '').toUpperCase().trim();
+                    if (kCab && kCab !== '-') return kCab === myCab;
+                    if (k.ID_Transaksi && (validInvSet.has(String(k.ID_Transaksi)) || validPoSet.has(String(k.ID_Transaksi)))) return true;
+                    return myCab === 'PUSAT';
+                });
             }
             
             state.data = cleanData;
             if(el) el.innerHTML = '<i class="fa-solid fa-cloud text-emerald-500"></i> Otomatis'; 
             
+            // Sinkronkan sisa stok di keranjangTransfer jika ada item yang berubah stoknya
+            if (state.keranjangTransfer && state.keranjangTransfer.length > 0) {
+                state.keranjangTransfer = state.keranjangTransfer.filter(item => {
+                    let latestPrd = state.data.produk.find(p => String(p.ID_Produk) === String(item.id_produk));
+                    if (!latestPrd || parseFloat(latestPrd.Stok_Saat_Ini) <= 0) return false;
+                    item.stok_tersedia = parseFloat(latestPrd.Stok_Saat_Ini);
+                    if (item.qty > item.stok_tersedia) item.qty = item.stok_tersedia;
+                    return true;
+                });
+            }
+
             // ANTI-LAG SYSTEM: Jangan re-render UI kalau user sedang sibuk buka form / opname
             switch(state.activeMenu) {
                 case 'dashboard': document.getElementById('main-content-area').innerHTML = viewDashboard(); renderChartDasbor(); break;
@@ -422,6 +479,11 @@ async function syncDataLiveBackground() {
                     let isTransfer = document.getElementById('stok-transfer') && !document.getElementById('stok-transfer').classList.contains('hidden');
                     let isLacak = document.getElementById('stok-lacak') && !document.getElementById('stok-lacak').classList.contains('hidden');
                     if (!isOpname && !isTransfer && !isLacak) { filterStokUI(); }
+                    if (isTransfer) {
+                        renderKeranjangTransfer();
+                        let dropTf = document.getElementById('tf-prd-dropdown');
+                        if (dropTf && !dropTf.classList.contains('hidden')) filterListTf();
+                    }
                     break;
             }
             
@@ -431,7 +493,7 @@ async function syncDataLiveBackground() {
         }
     } finally {
         isSyncing = false; 
-        if (loader) loader.classList.replace('flex', 'hidden');
+        if (loader && !isSilent) loader.classList.replace('flex', 'hidden');
     }
 }
 
@@ -467,7 +529,7 @@ function renderModulAktif() {
             case 'pos': area.innerHTML = viewPOS(); renderKeranjangPOS(); setPilihanPelanggan(); break; 
             case 'penjualan': area.innerHTML = viewPenjualan(); filterPenjualanUI(); break; 
             case 'produk': area.innerHTML = viewProduk(); filterProdukUI(); break; 
-            case 'stok': area.innerHTML = viewStok(); filterStokUI(); break; 
+            case 'stok': area.innerHTML = viewStok(); filterStokUI(); renderKeranjangTransfer(); break; 
             case 'pelanggan': area.innerHTML = viewPelanggan(); filterPelangganUI(); break; 
             case 'supplier': area.innerHTML = viewSupplier(); filterSupplierUI(); break; 
             case 'pembelian': area.innerHTML = viewPembelian(); renderKeranjangPO(); break; 
@@ -535,6 +597,12 @@ function bukaAppScreen() {
     document.getElementById('ui-role').innerText = state.role + " (" + state.cabang + ")"; 
     navigasi(state.activeMenu); 
     syncDataLiveBackground(); 
+    if (state.syncInterval) clearInterval(state.syncInterval);
+    state.syncInterval = setInterval(() => {
+        if (!document.hidden && state.token) {
+            syncDataLiveBackground(true);
+        }
+    }, 90000);
 }
 
 function toggleMobileMenu() {
@@ -788,9 +856,11 @@ function renderListPelangganPOS(data) {
     let html = `<div onclick="pilihPelangganPOS('UMUM', 'Pelanggan UMUM')" class="p-2 hover:bg-blue-50 rounded-lg cursor-pointer transition flex justify-between items-center"><span class="font-bold text-sm text-slate-800">Pelanggan UMUM</span><span class="text-[9px] font-black text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">UMUM</span></div>`; 
     if(data && data.length > 0) { 
         data.forEach(p => { 
-            let nama = p.Nama_Pelanggan;
-            let id = p.ID_Pelanggan;
-            html += `<div onclick="pilihPelangganPOS('${id}', '${nama}')" class="p-2 hover:bg-blue-50 rounded-lg cursor-pointer transition flex justify-between items-center group">
+            let nama = String(p.Nama_Pelanggan || '');
+            let id = String(p.ID_Pelanggan || '');
+            let safeId = id.replace(/'/g, "\\'");
+            let safeNama = nama.replace(/'/g, "\\'");
+            html += `<div onclick="pilihPelangganPOS('${safeId}', '${safeNama}')" class="p-2 hover:bg-blue-50 rounded-lg cursor-pointer transition flex justify-between items-center group">
                 <span class="font-bold text-sm text-slate-700 truncate pr-2 group-hover:text-blue-700">${nama}</span>
                 <span class="text-[9px] font-black text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 group-hover:text-blue-600 group-hover:border-blue-200 shrink-0">${id}</span>
             </div>`; 
@@ -1074,8 +1144,8 @@ async function prosesCheckoutPOS() {
             state.posTemp.admin_leasing = marginLeasing;
         } else {
             state.posTemp.dp = totalSplit;
-            marginLeasing = totalSplit - totalAsli;
-            state.posTemp.admin_leasing = marginLeasing;
+            state.posTemp.sisa = Math.max(0, state.posTemp.total_akhir - totalSplit);
+            state.posTemp.admin_leasing = 0;
         }
     } else {
         state.posTemp.admin_leasing = 0;
@@ -1131,8 +1201,8 @@ async function prosesCheckoutPOS() {
         document.getElementById('area-bayar').classList.add('hidden'); document.getElementById('area-setelah-bayar').classList.replace('hidden','flex'); 
         btn.innerHTML = '<i class="fa-solid fa-check-circle mr-2"></i> BAYAR SEKARANG'; btn.disabled = false; 
         
-        // PERBAIKAN: Beri jeda 3 detik ke Google Sheets sebelum menarik data terbaru
-        setTimeout(() => { syncDataLiveBackground(); }, 3000); 
+        // PERBAIKAN: Beri jeda 3 detik ke Google Sheets sebelum menarik data terbaru (mode silent tanpa popup blocking)
+        setTimeout(() => { syncDataLiveBackground(true); }, 3000); 
 
         jalankanCetakStruk(res.invoice, totalNominal); 
     } else { 
@@ -1303,13 +1373,24 @@ function viewPenjualan() {
 
 function gantiTabPenjualan(tab) { document.getElementById('konten-pj-riwayat').classList.add('hidden'); document.getElementById('konten-pj-so').classList.add('hidden'); document.getElementById('tab-pj-riwayat').className = "tab-custom"; document.getElementById('tab-pj-so').className = "tab-custom"; document.getElementById(`konten-pj-${tab}`).classList.remove('hidden'); document.getElementById(`tab-pj-${tab}`).className = "tab-custom active"; if(tab === 'so') renderTabelSO(); }
 
-function filterPenjualanUI() { let d = new Date(); if(document.getElementById('filter-start')) document.getElementById('filter-start').value = d.toISOString().split('T')[0]; if(document.getElementById('filter-end')) document.getElementById('filter-end').value = d.toISOString().split('T')[0]; renderRiwayatTabel(state.data.penjualan); }
+function filterPenjualanUI() { 
+    let d = new Date(); 
+    let localToday = new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
+    if(document.getElementById('filter-start')) document.getElementById('filter-start').value = localToday; 
+    if(document.getElementById('filter-end')) document.getElementById('filter-end').value = localToday; 
+    renderRiwayatTabel(state.data.penjualan); 
+}
 
 function filterRiwayat() { 
-    let start = new Date(document.getElementById('filter-start').value); 
-    start.setHours(0,0,0); 
-    let end = new Date(document.getElementById('filter-end').value); 
-    end.setHours(23, 59, 59); 
+    let dNow = new Date();
+    let localToday = new Date(dNow.getTime() - (dNow.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
+    let elStart = document.getElementById('filter-start');
+    let elEnd = document.getElementById('filter-end');
+    if (elStart && !elStart.value) elStart.value = localToday;
+    if (elEnd && !elEnd.value) elEnd.value = localToday;
+
+    let start = new Date((elStart ? elStart.value : localToday) + "T00:00:00"); 
+    let end = new Date((elEnd ? elEnd.value : localToday) + "T23:59:59"); 
     
     let searchVal = "";
     let searchEl = document.getElementById('filter-search-pj');
@@ -1501,7 +1582,7 @@ async function simpanModalInline(idPrd, inv) {
         p.Harga_Beli = modalBaru;
         showInlineNotif('success', `Modal ${p.Nama_Produk} berhasil diupdate ke ${formatRp(modalBaru)}!`);
         lihatDetailInvoice(inv);
-        setTimeout(() => { syncDataLiveBackground(); }, 1500);
+        setTimeout(() => { syncDataLiveBackground(true); }, 1500);
     } else {
         showInlineNotif('error', (res && res.msg) ? res.msg : 'Gagal mengubah modal!');
         if (btn) { btn.innerText = 'Simpan'; btn.disabled = false; }
@@ -1716,7 +1797,7 @@ function viewProduk() {
 
   let filterCabangHtml = '';
   let roleNorm = String(state.role).toUpperCase().replace(/\s+/g, '');
-  if(roleNorm !== 'KASIR') {
+  if(roleNorm === 'SUPERADMIN') {
       filterCabangHtml = `<select id="filter-cabang-produk" onchange="filterProdukUI()" class="border border-slate-200 p-2.5 rounded-lg text-xs font-bold outline-none focus:border-blue-500 bg-white shadow-sm"><option value="SEMUA">Semua Cabang</option>`;
       savedCabang.forEach(c => { filterCabangHtml += `<option value="${c}">${c}</option>`; });
       filterCabangHtml += `</select>`;
@@ -2111,6 +2192,107 @@ async function eksekusiHapusMassal() {
     syncDataLiveBackground(); 
     filterProdukUI(); 
 }
+
+function triggerImportProduk() {
+    let inp = document.getElementById('csv-import-produk-input');
+    if (!inp) {
+        inp = document.createElement('input');
+        inp.type = 'file';
+        inp.id = 'csv-import-produk-input';
+        inp.accept = '.csv,text/csv';
+        inp.style.display = 'none';
+        inp.onchange = prosesImportProdukCSV;
+        document.body.appendChild(inp);
+    }
+    inp.value = '';
+    inp.click();
+}
+
+async function prosesImportProdukCSV(event) {
+    let file = event.target.files[0];
+    if (!file) return;
+    let text = await file.text();
+    let lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l);
+    if (lines.length < 2) return showInlineNotif('error', 'File CSV kosong atau tidak memiliki baris data!');
+
+    let delimiter = lines[0].includes(';') ? ';' : ',';
+    let parseRow = (row) => {
+        let cols = [];
+        let cur = '';
+        let inQuotes = false;
+        for (let i = 0; i < row.length; i++) {
+            let ch = row[i];
+            if (ch === '"') {
+                if (inQuotes && row[i + 1] === '"') { cur += '"'; i++; }
+                else { inQuotes = !inQuotes; }
+            } else if (ch === delimiter && !inQuotes) {
+                cols.push(cur.trim()); cur = '';
+            } else { cur += ch; }
+        }
+        cols.push(cur.trim());
+        return cols;
+    };
+
+    let headers = parseRow(lines[0].replace(/^\uFEFF/, '')).map(h => h.toLowerCase());
+    let idxBc = headers.findIndex(h => h.includes('barcode') || h.includes('imei'));
+    let idxNm = headers.findIndex(h => h.includes('nama'));
+    let idxSup = headers.findIndex(h => h.includes('supplier'));
+    let idxKat = headers.findIndex(h => h.includes('kategori'));
+    let idxWrn = headers.findIndex(h => h.includes('warna'));
+    let idxSat = headers.findIndex(h => h.includes('satuan'));
+    let idxBeli = headers.findIndex(h => h.includes('beli') || h.includes('modal'));
+    let idxJual = headers.findIndex(h => h.includes('jual'));
+    let idxStok = headers.findIndex(h => h === 'stok' || h.includes('stok saat ini') || h.includes('qty'));
+    let idxMin = headers.findIndex(h => h.includes('min'));
+    let idxCab = headers.findIndex(h => h.includes('cabang'));
+
+    if (idxNm === -1 || idxJual === -1) {
+        return showInlineNotif('error', 'Format CSV harus memiliki kolom Nama Produk dan Harga Jual!');
+    }
+
+    let loader = document.getElementById('global-loader');
+    if (loader) {
+        loader.querySelector('p').innerText = "IMPORT CSV PRODUK...";
+        loader.classList.replace('hidden', 'flex');
+    }
+
+    let successCount = 0;
+    let skipCount = 0;
+    for (let i = 1; i < lines.length; i++) {
+        let cols = parseRow(lines[i]);
+        let nm = cols[idxNm] || '';
+        if (!nm) continue;
+        let bc = idxBc > -1 ? (cols[idxBc] || '') : '';
+        if (bc && bc !== '-') {
+            let bClean = bc.toUpperCase().replace(/\s+/g, '');
+            let isDup = state.data.produk.some(p => String(p.Barcode || '').toUpperCase().replace(/\s+/g, '') === bClean);
+            if (isDup) { skipCount++; continue; }
+        }
+        let isImei = bc !== '' && bc !== '-';
+        let stokVal = isImei ? 1 : (idxStok > -1 ? (parseFloat(cols[idxStok]) || 0) : 0);
+        let obj = {
+            Barcode: bc,
+            Nama_Produk: nm,
+            Supplier: idxSup > -1 ? (cols[idxSup] || '-') : '-',
+            Kategori: idxKat > -1 ? (cols[idxKat] || 'Umum') : 'Umum',
+            Warna: idxWrn > -1 ? (cols[idxWrn] || '') : '',
+            Satuan: idxSat > -1 ? (cols[idxSat] || 'Pcs') : 'Pcs',
+            Harga_Beli: idxBeli > -1 ? parseAngka(cols[idxBeli]) : 0,
+            Harga_Jual: parseAngka(cols[idxJual]),
+            Diskon: 0,
+            Stok_Saat_Ini: stokVal,
+            Stok_Minimum: idxMin > -1 ? (parseFloat(cols[idxMin]) || 0) : 0,
+            Cabang: idxCab > -1 ? (cols[idxCab] || state.cabang) : state.cabang
+        };
+        if (loader) loader.querySelectorAll('p')[1].innerText = `Mengimpor baris ${i} dari ${lines.length - 1}...`;
+        let res = await requestAPIWithAuth('crudDataMaster', { modul: 'Produk', action: 'CREATE', key: 'ID_Produk', id: '', obj: obj });
+        if (res && res.status) successCount++;
+    }
+
+    if (loader) loader.classList.replace('flex', 'hidden');
+    showInlineNotif('success', `Import selesai! Berhasil: ${successCount}${skipCount > 0 ? ', Dilewati (IMEI Duplikat): ' + skipCount : ''}`);
+    syncDataLiveBackground();
+}
 // ====================================================================
 // VIEW & FUNGSI: KELOLA STOK
 // ====================================================================
@@ -2201,103 +2383,253 @@ function viewStok() {
         </div> 
         <div id="stok-lacak" class="hidden flex-1"><div class="bg-slate-50 p-6 rounded-2xl shadow-sm border border-slate-200 max-w-lg mx-auto mt-6"><h3 class="font-bold text-center mb-4 text-lg">Pelacakan Posisi IMEI / Barcode</h3><div class="flex gap-2 mb-4"><input type="text" id="input-lacak-imei" placeholder="Scan/Ketik Barcode IMEI HP..." class="w-full border border-slate-300 p-3.5 rounded-xl font-bold bg-white focus:border-blue-500 outline-none"><button onclick="bukaKamera('lacak')" class="bg-blue-600 hover:bg-blue-700 text-white px-5 rounded-xl shadow-md transition" title="Scan Kamera"><i class="fa-solid fa-camera text-xl"></i></button></div><button onclick="lacakImeiBarang()" class="w-full bg-blue-600 text-white font-bold py-3.5 rounded-xl shadow-md hover:bg-blue-700 transition"><i class="fa-solid fa-search mr-2"></i>Lacak Posisi Sekarang</button></div><div id="hasil-lacak-imei" class="mt-6 hidden max-w-2xl mx-auto space-y-3"></div></div> 
         
-        <div id="stok-transfer" class="hidden flex-1">
-            <div class="bg-slate-50 p-6 rounded-2xl shadow-sm border border-slate-200 max-w-2xl mx-auto mt-6">
-                <h3 class="font-bold mb-4 text-lg border-b pb-2">Pindahkan Stok ke Cabang Lain</h3>
-                <div class="grid grid-cols-2 gap-4 mb-4">
-                    <div><label class="text-xs font-bold text-slate-500">Dari Gudang</label><input type="text" value="${state.cabang}" class="w-full border border-slate-200 p-3 rounded-xl bg-slate-100 font-bold text-slate-500" disabled></div>
-                    <div><label class="text-xs font-bold text-slate-500">Tujuan Cabang</label><select id="tf-tujuan" class="w-full border border-slate-200 p-3 rounded-xl bg-white font-bold outline-none focus:border-blue-500">${opsiCabangTFHtml}</select></div>
+        <div id="stok-transfer" class="hidden flex-1 overflow-y-auto">
+            <div class="bg-slate-50 p-5 md:p-6 rounded-2xl shadow-sm border border-slate-200 max-w-5xl mx-auto mt-2">
+                <div class="flex flex-col md:flex-row justify-between md:items-center gap-3 mb-5 border-b border-slate-200 pb-3">
+                    <div>
+                        <h3 class="font-black text-lg text-slate-800 flex items-center gap-2"><i class="fa-solid fa-truck-fast text-indigo-600"></i> Transfer Stok Multi-Barang & Multi-IMEI Antar Cabang</h3>
+                        <p class="text-xs font-bold text-slate-400 mt-0.5">Bisa kirim banyak barang dengan tipe sama (beda IMEI) maupun berbeda tipe sekaligus dalam satu kali proses.</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button id="btn-cetak-sj-tf" onclick="cetakSuratJalanTransfer()" class="${window.lastTransferReceipt ? 'flex' : 'hidden'} bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white border border-emerald-200 font-bold px-3.5 py-2 rounded-xl text-xs items-center gap-1.5 shadow-sm transition"><i class="fa-solid fa-print"></i> Cetak Surat Jalan Terakhir</button>
+                    </div>
                 </div>
-                <div class="flex gap-2 mb-4">
-                    <!-- CUSTOM SEARCHABLE DROPDOWN UNTUK PRODUK TRANSFER -->
-                    <div class="relative flex-1">
+
+                <!-- PILIH GUDANG ASAL & TUJUAN -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
+                    <div class="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1"><i class="fa-solid fa-warehouse text-slate-400 mr-1"></i> Dari Gudang (Cabang Asal)</label>
+                        ${roleNorm === 'SUPERADMIN' ? `
+                        <select id="tf-asal" onchange="onChangeCabangAsalTf()" class="w-full border border-slate-200 p-2.5 rounded-lg bg-slate-50 font-black text-sm text-slate-700 outline-none focus:border-indigo-500">
+                            <option value="SEMUA">Semua Cabang (Sesuai Lokasi Barang)</option>
+                            ${savedCabang.map(cab => `<option value="${cab}" ${String(cab).toUpperCase().trim() === String(state.cabang).toUpperCase().trim() ? 'selected' : ''}>${cab}</option>`).join('')}
+                        </select>
+                        ` : `
+                        <input type="text" id="tf-asal" value="${state.cabang}" class="w-full border border-slate-200 p-2.5 rounded-lg bg-slate-100 font-black text-sm text-slate-600 cursor-not-allowed" disabled>
+                        `}
+                    </div>
+                    <div class="bg-indigo-50/60 p-3.5 rounded-xl border border-indigo-200 shadow-sm">
+                        <label class="text-[10px] font-black text-indigo-700 uppercase tracking-wider block mb-1"><i class="fa-solid fa-location-dot text-indigo-500 mr-1"></i> Tujuan Cabang Penerima *</label>
+                        <select id="tf-tujuan" class="w-full border border-indigo-300 p-2.5 rounded-lg bg-white font-black text-sm text-indigo-900 outline-none focus:border-indigo-600">${opsiCabangTFHtml}</select>
+                    </div>
+                </div>
+
+                <!-- AREA INPUT 1 & 2: SCAN MULTI-IMEI + DROPDOWN MULTI-SELECT -->
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-3 mb-5">
+                    <!-- SCAN / PASTE MULTI-IMEI CEPAT -->
+                    <div class="lg:col-span-5 flex gap-2">
+                        <div class="relative flex-1">
+                            <i class="fa-solid fa-barcode absolute left-3.5 top-3.5 text-slate-400"></i>
+                            <input type="text" id="tf-scan-input" onkeypress="if(event.key==='Enter') prosesInputScanTf()" class="w-full border border-slate-300 p-3 pl-10 rounded-xl bg-white font-bold text-xs outline-none focus:border-indigo-500 shadow-sm" placeholder="Scan / Ketik Multi-IMEI (Enter)..." autocomplete="off">
+                        </div>
+                        <button onclick="prosesInputScanTf()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 rounded-xl font-bold text-xs shadow-sm transition shrink-0" title="Tambah dari Kode/IMEI"><i class="fa-solid fa-plus mr-1"></i>IMEI</button>
+                        <button onclick="bukaKamera('tf')" class="bg-blue-600 hover:bg-blue-700 text-white w-11 rounded-xl shadow-sm transition flex items-center justify-center shrink-0" title="Scan Kamera"><i class="fa-solid fa-camera"></i></button>
+                    </div>
+
+                    <!-- CUSTOM MULTI-SELECT SEARCHABLE DROPDOWN PRODUK -->
+                    <div class="lg:col-span-7 relative">
                         <div id="tf-prd-overlay" class="hidden fixed inset-0 z-30" onclick="toggleTfDropdown()"></div>
                         <input type="hidden" id="tf-produk" value="">
-                        <div class="w-full border border-slate-200 p-3 pl-11 rounded-xl bg-white font-bold text-sm flex justify-between items-center cursor-pointer hover:border-blue-400 transition relative z-40" onclick="toggleTfDropdown()">
-                            <i class="fa-solid fa-box-open absolute left-4 top-3.5 text-slate-400"></i>
-                            <span id="tf-prd-label" class="truncate text-slate-500">-- Pilih / Cari Produk yg Dipindah --</span>
-                            <i class="fa-solid fa-chevron-down text-slate-400 text-xs"></i>
+                        <div class="w-full border-2 border-indigo-200 hover:border-indigo-400 p-3 pl-10 rounded-xl bg-white font-bold text-xs md:text-sm flex justify-between items-center cursor-pointer transition relative z-40 shadow-sm" onclick="toggleTfDropdown()">
+                            <i class="fa-solid fa-boxes-stacked absolute left-3.5 top-3.5 text-indigo-500"></i>
+                            <span id="tf-prd-label" class="truncate text-slate-700">-- Cari & Pilih Barang / Multi-IMEI (Klik untuk Buka Daftar) --</span>
+                            <span class="bg-indigo-50 text-indigo-600 text-[10px] font-black px-2 py-0.5 rounded border border-indigo-100 ml-2 shrink-0"><i class="fa-solid fa-chevron-down mr-1"></i>Pilih</span>
                         </div>
-                        <div id="tf-prd-dropdown" class="hidden absolute top-full left-0 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-2xl z-50 flex-col overflow-hidden max-h-60">
-                            <div class="p-2 border-b border-slate-100 sticky top-0 bg-white">
+                        <div id="tf-prd-dropdown" class="hidden absolute top-full left-0 w-full mt-1.5 bg-white border-2 border-indigo-200 rounded-2xl shadow-2xl z-50 flex-col overflow-hidden max-h-96">
+                            <div class="p-3 border-b border-slate-100 sticky top-0 bg-slate-50 space-y-2">
                                 <div class="relative">
                                     <i class="fa-solid fa-search absolute left-3 top-2.5 text-slate-400 text-xs"></i>
-                                    <input type="text" id="tf-prd-search" onkeyup="filterListTf()" class="w-full bg-slate-50 border border-slate-200 p-2 pl-8 rounded-lg text-xs font-bold outline-none focus:border-blue-500" placeholder="Ketik Nama / IMEI..." autocomplete="off">
+                                    <input type="text" id="tf-prd-search" onkeyup="filterListTf()" class="w-full bg-white border border-slate-300 p-2 pl-8 rounded-lg text-xs font-bold outline-none focus:border-indigo-500" placeholder="Ketik Nama Produk / Tipe / IMEI / Warna..." autocomplete="off">
+                                </div>
+                                <div class="flex justify-between items-center gap-2">
+                                    <span class="text-[10px] font-bold text-slate-500"><i class="fa-solid fa-hand-pointer text-indigo-500 mr-1"></i>Klik item untuk tambah/batal (bisa pilih banyak sekaligus)</span>
+                                    <div class="flex gap-1.5 shrink-0">
+                                        <button type="button" onclick="pilihSemuaHasilFilterTf()" class="bg-indigo-50 hover:bg-indigo-600 text-indigo-600 hover:text-white border border-indigo-200 text-[10px] font-black px-2.5 py-1 rounded-lg transition"><i class="fa-solid fa-check-double mr-1"></i>Pilih Semua Hasil Cari</button>
+                                        <button type="button" onclick="toggleTfDropdown()" class="bg-slate-800 hover:bg-black text-white text-[10px] font-black px-3 py-1 rounded-lg transition">Selesai</button>
+                                    </div>
                                 </div>
                             </div>
-                            <div id="tf-prd-list" class="overflow-y-auto flex-1 p-1 space-y-1"></div>
+                            <div id="tf-prd-list" class="overflow-y-auto flex-1 p-2 space-y-1.5 divide-y divide-slate-50"></div>
                         </div>
                     </div>
-                    <!-- AKHIR CUSTOM DROPDOWN -->
-
-                    <button onclick="bukaKamera('tf')" class="bg-blue-600 text-white w-12 rounded-xl shadow hover:bg-blue-700 transition"><i class="fa-solid fa-camera"></i></button>
                 </div>
-                <div class="flex gap-4">
-                    <input type="number" id="tf-qty" placeholder="Qty Dikirim" class="w-1/3 border border-slate-200 p-3 rounded-xl font-bold bg-white outline-none focus:border-blue-500">
-                    <button id="btn-tf" class="w-2/3 bg-slate-800 text-white font-bold py-3 rounded-xl shadow-md hover:bg-slate-900 transition" onclick="prosesTransferGudang()">Proses Pindah Gudang</button>
+
+                <!-- REKAP PER TIPE BARANG -->
+                <div id="tf-rekap-wrap" class="hidden mb-4 bg-indigo-50/70 border border-indigo-100 p-3 rounded-xl">
+                    <p class="text-[10px] font-black text-indigo-700 uppercase tracking-wider mb-1.5"><i class="fa-solid fa-layer-group mr-1"></i> Ringkasan Tipe Barang & IMEI yang Dipilih:</p>
+                    <div id="tf-rekap-tipe" class="flex flex-wrap gap-1.5"></div>
+                </div>
+
+                <!-- TABEL KERANJANG / DAFTAR BARANG TRANSFER -->
+                <div class="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm mb-5">
+                    <div class="bg-slate-100 px-4 py-3 border-b border-slate-200 flex flex-wrap justify-between items-center gap-2">
+                        <div class="flex items-center gap-2">
+                            <h4 class="font-black text-xs text-slate-700 uppercase tracking-wider"><i class="fa-solid fa-clipboard-list text-indigo-600 mr-1.5"></i>Daftar Barang Akan Ditransfer</h4>
+                            <span class="bg-indigo-100 text-indigo-700 text-[10px] font-black px-2 py-0.5 rounded-full"><span id="tf-count-baris">0</span> Baris/IMEI</span>
+                            <span class="bg-emerald-100 text-emerald-700 text-[10px] font-black px-2 py-0.5 rounded-full"><span id="tf-count-unit">0</span> Total Unit</span>
+                        </div>
+                        <button onclick="kosongkanKeranjangTf()" id="btn-clear-tf" class="hidden text-[11px] font-bold text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 px-3 py-1 rounded-lg border border-red-200 transition"><i class="fa-solid fa-trash-can mr-1"></i>Kosongkan Daftar</button>
+                    </div>
+                    <div class="overflow-x-auto max-h-96">
+                        <table class="w-full text-left min-w-[680px]">
+                            <thead class="bg-slate-50 text-[10px] text-slate-500 font-black uppercase tracking-wider border-b border-slate-200 sticky top-0 z-10">
+                                <tr>
+                                    <th class="p-3 pl-4 w-10 text-center">No</th>
+                                    <th class="p-3">Nama Produk / Tipe</th>
+                                    <th class="p-3">IMEI / Barcode & Warna</th>
+                                    <th class="p-3 text-center">Gudang Asal</th>
+                                    <th class="p-3 text-center">Stok</th>
+                                    <th class="p-3 text-center w-36">Qty Kirim</th>
+                                    <th class="p-3 pr-4 text-center w-14">Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tf-cart-body" class="divide-y divide-slate-100 text-xs font-bold text-slate-700"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- TOMBOL EKSEKUSI TRANSFER MASSAL -->
+                <div class="flex flex-col sm:flex-row justify-between items-center gap-3 bg-slate-900 text-white p-4 rounded-xl shadow-md">
+                    <div class="text-center sm:text-left">
+                        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Total Pengiriman</p>
+                        <p class="text-sm md:text-base font-black text-emerald-400"><span id="tf-footer-summary">0 Tipe Produk | 0 Baris/IMEI | 0 Unit</span></p>
+                    </div>
+                    <button id="btn-tf" class="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-500 text-white font-black px-8 py-3.5 rounded-xl shadow-lg transition flex items-center justify-center gap-2 text-sm" onclick="konfirmasiProsesTransferGudang()">
+                        <i class="fa-solid fa-paper-plane"></i> Proses Pindah Gudang Sekarang
+                    </button>
                 </div>
             </div>
         </div> 
     </div> `; 
 }
 
-// LOGIKA BARU UNTUK CUSTOM SEARCHABLE DROPDOWN TRANSFER
-function renderListTf(searchVal = "") {
-    let listEl = document.getElementById('tf-prd-list');
-    if(!listEl) return;
-    
+// ====================================================================
+// LOGIKA MULTI-ITEM & MULTI-IMEI TRANSFER CABANG
+// ====================================================================
+function getSelectedCabangAsalTf() {
     let roleNorm = String(state.role).toUpperCase().replace(/\s+/g, '');
-    let myCab = String(state.cabang).toUpperCase().trim();
-    
-    let html = "";
-    let prodList = state.data.produk ? [...state.data.produk].sort((a, b) => String(a.Nama_Produk).localeCompare(String(b.Nama_Produk))) : [];
-    
-    let filtered = prodList.filter(p => {
+    if (roleNorm !== 'SUPERADMIN') return String(state.cabang || 'Pusat').trim();
+    let el = document.getElementById('tf-asal');
+    return el ? String(el.value || state.cabang || 'Pusat').trim() : String(state.cabang || 'Pusat').trim();
+}
+
+function onChangeCabangAsalTf() {
+    filterListTf();
+    renderKeranjangTransfer();
+}
+
+function getFilteredProdukForTf(searchVal = "") {
+    let roleNorm = String(state.role).toUpperCase().replace(/\s+/g, '');
+    let myCab = String(state.cabang || 'Pusat').toUpperCase().trim();
+    let filterAsal = getSelectedCabangAsalTf().toUpperCase().trim();
+
+    let prodList = state.data.produk ? [...state.data.produk].sort((a, b) => {
+        let cmp = String(a.Nama_Produk || '').localeCompare(String(b.Nama_Produk || ''));
+        if (cmp !== 0) return cmp;
+        return String(a.Barcode || '').localeCompare(String(b.Barcode || ''));
+    }) : [];
+
+    return prodList.filter(p => {
+        if (parseFloat(p.Stok_Saat_Ini) <= 0) return false;
         let pCabang = String(p.Cabang || 'Pusat').toUpperCase().trim();
-        let isAllowed = (roleNorm === 'SUPERADMIN') ? true : (pCabang === myCab);
-        if (!isAllowed || parseFloat(p.Stok_Saat_Ini) <= 0) return false;
-        
+        if (roleNorm !== 'SUPERADMIN') {
+            if (pCabang !== myCab) return false;
+        } else {
+            if (filterAsal !== 'SEMUA' && pCabang !== filterAsal) return false;
+        }
+
         if (searchVal) {
-            let s = searchVal.toLowerCase();
-            return String(p.Nama_Produk).toLowerCase().includes(s) || 
-                   String(p.Barcode).toLowerCase().includes(s) || 
-                   String(p.Warna || "").toLowerCase().includes(s) || 
-                   String(p.ID_Produk).toLowerCase().includes(s);
+            let s = searchVal.toLowerCase().trim();
+            return String(p.Nama_Produk || '').toLowerCase().includes(s) ||
+                   String(p.Barcode || '').toLowerCase().includes(s) ||
+                   String(p.Warna || '').toLowerCase().includes(s) ||
+                   String(p.Kategori || '').toLowerCase().includes(s) ||
+                   String(p.ID_Produk || '').toLowerCase().includes(s);
         }
         return true;
     });
+}
 
-    if(filtered.length === 0) {
-        html = `<div class="p-3 text-center text-xs font-bold text-slate-400">Tidak ada barang / stok kosong.</div>`;
-    } else {
-        filtered.forEach(p => {
-            // TAMBAHAN: MUNCULKAN IMEI DAN WARNA
-            let infoImei = p.Barcode && p.Barcode !== '-' ? `<span class="text-[9px] bg-slate-100 px-1.5 py-0.5 rounded font-mono text-slate-500 border border-slate-200 mt-1 inline-block"><i class="fa-solid fa-barcode mr-1"></i>${p.Barcode}</span>` : '';
-            let infoWarna = p.Warna && p.Warna !== '-' ? `<span class="text-[9px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-500 border border-slate-200 mt-1 inline-block ml-1"><i class="fa-solid fa-palette mr-1"></i>${p.Warna}</span>` : '';
+function renderListTf(searchVal = "") {
+    let listEl = document.getElementById('tf-prd-list');
+    if (!listEl) return;
 
-            html += `<div onclick="pilihProdukTf('${p.ID_Produk}', '${p.Nama_Produk.replace(/'/g, "\\'")}')" class="p-2 hover:bg-blue-50 rounded-lg cursor-pointer transition flex justify-between items-center group">
-                <div class="flex-1 pr-2">
-                    <p class="font-bold text-xs text-slate-700 group-hover:text-blue-700 leading-tight">${p.Nama_Produk}</p>
-                    <div>${infoImei}${infoWarna}</div>
-                </div>
-                <div class="text-right shrink-0">
-                    <span class="text-[10px] font-black text-emerald-600 bg-emerald-50 px-2 py-1 rounded border border-emerald-100">Sisa: ${p.Stok_Saat_Ini}</span>
-                </div>
-            </div>`;
-        });
+    if (!state.keranjangTransfer) state.keranjangTransfer = [];
+    let filtered = getFilteredProdukForTf(searchVal);
+
+    if (filtered.length === 0) {
+        listEl.innerHTML = `<div class="p-6 text-center text-xs font-bold text-slate-400"><i class="fa-solid fa-box-open text-2xl mb-2 block text-slate-300"></i>Tidak ada barang yang cocok atau stok kosong di gudang asal ini.</div>`;
+        return;
     }
+
+    // Hitung jumlah unit per Nama_Produk di hasil filter untuk memudahkan identifikasi barang bernama sama dengan banyak IMEI
+    let groupCountMap = {};
+    filtered.forEach(p => {
+        let key = String(p.Nama_Produk || '').trim().toUpperCase() + '__' + String(p.Cabang || 'Pusat').trim().toUpperCase();
+        groupCountMap[key] = (groupCountMap[key] || 0) + 1;
+    });
+
+    let html = "";
+    filtered.forEach(p => {
+        let stokTersedia = parseFloat(p.Stok_Saat_Ini) || 0;
+        let hasImei = p.Barcode && String(p.Barcode).trim() !== '' && String(p.Barcode).trim() !== '-';
+        let isSingleImeiUnit = hasImei && stokTersedia === 1;
+        let inCartIdx = state.keranjangTransfer.findIndex(k => String(k.id_produk) === String(p.ID_Produk));
+        let inCartItem = inCartIdx > -1 ? state.keranjangTransfer[inCartIdx] : null;
+
+        let key = String(p.Nama_Produk || '').trim().toUpperCase() + '__' + String(p.Cabang || 'Pusat').trim().toUpperCase();
+        let sameTypeCount = groupCountMap[key] || 1;
+
+        let infoImei = hasImei
+            ? `<span class="text-[10px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded font-mono font-black border border-indigo-200 mt-1 inline-block"><i class="fa-solid fa-barcode mr-1"></i>IMEI/SN: ${p.Barcode}</span>`
+            : `<span class="text-[9px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-mono border border-slate-200 mt-1 inline-block">ID: ${p.ID_Produk} (Non-IMEI)</span>`;
+        let infoWarna = (p.Warna && p.Warna !== '-')
+            ? `<span class="text-[9px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded font-bold border border-amber-200 mt-1 inline-block ml-1"><i class="fa-solid fa-palette mr-1"></i>${p.Warna}</span>`
+            : '';
+        let infoCabang = `<span class="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded font-bold border border-blue-100 mt-1 inline-block ml-1 uppercase"><i class="fa-solid fa-store mr-1"></i>${p.Cabang || 'Pusat'}</span>`;
+        let infoMultiImeiTag = sameTypeCount > 1
+            ? `<span class="text-[9px] bg-purple-50 text-purple-600 px-1.5 py-0.5 rounded font-black border border-purple-200 ml-1">${sameTypeCount} IMEI Tersedia</span>`
+            : '';
+
+        let rowBg = inCartItem ? "bg-emerald-50/70 border border-emerald-200" : "hover:bg-indigo-50/60 border border-transparent";
+        let actionBadge = "";
+        if (inCartItem) {
+            if (isSingleImeiUnit || inCartItem.qty >= stokTersedia) {
+                actionBadge = `<span class="text-[10px] font-black text-white bg-emerald-600 hover:bg-red-500 px-2.5 py-1 rounded-lg shadow-sm transition inline-flex items-center gap-1"><i class="fa-solid fa-check"></i> Terpilih (${inCartItem.qty})</span>`;
+            } else {
+                actionBadge = `<span class="text-[10px] font-black text-emerald-700 bg-emerald-100 border border-emerald-300 px-2.5 py-1 rounded-lg transition inline-flex items-center gap-1"><i class="fa-solid fa-plus"></i> Di Daftar: ${inCartItem.qty}/${stokTersedia}</span>`;
+            }
+        } else {
+            actionBadge = `<span class="text-[10px] font-black text-indigo-600 bg-indigo-50 group-hover:bg-indigo-600 group-hover:text-white border border-indigo-200 px-2.5 py-1 rounded-lg transition inline-flex items-center gap-1"><i class="fa-solid fa-plus"></i> Pilih</span>`;
+        }
+
+        let safeId = String(p.ID_Produk).replace(/'/g, "\\'");
+        html += `<div onclick="pilihProdukTf('${safeId}')" class="p-2.5 rounded-xl cursor-pointer transition flex justify-between items-center group ${rowBg}">
+            <div class="flex-1 pr-3">
+                <p class="font-black text-xs text-slate-800 group-hover:text-indigo-700 leading-tight">${p.Nama_Produk} ${infoMultiImeiTag}</p>
+                <div class="flex flex-wrap items-center gap-0.5">${infoImei}${infoWarna}${infoCabang}</div>
+            </div>
+            <div class="text-right shrink-0 flex flex-col items-end gap-1">
+                <span class="text-[10px] font-bold text-slate-500">Stok: <b class="text-emerald-600">${stokTersedia} ${p.Satuan || 'Unit'}</b></span>
+                ${actionBadge}
+            </div>
+        </div>`;
+    });
+
     listEl.innerHTML = html;
 }
+
 function toggleTfDropdown() {
     let drop = document.getElementById('tf-prd-dropdown');
     let overlay = document.getElementById('tf-prd-overlay');
     let search = document.getElementById('tf-prd-search');
-    if(drop.classList.contains('hidden')) {
+    if (!drop || !overlay) return;
+    if (drop.classList.contains('hidden')) {
         drop.classList.replace('hidden', 'flex');
         overlay.classList.remove('hidden');
-        search.value = "";
+        if (search) search.value = "";
         renderListTf();
-        setTimeout(() => search.focus(), 100);
+        setTimeout(() => { if (search) search.focus(); }, 100);
     } else {
         drop.classList.replace('flex', 'hidden');
         overlay.classList.add('hidden');
@@ -2305,16 +2637,326 @@ function toggleTfDropdown() {
 }
 
 function filterListTf() {
-    let val = document.getElementById('tf-prd-search').value;
+    let search = document.getElementById('tf-prd-search');
+    let val = search ? search.value : "";
     renderListTf(val);
 }
 
-function pilihProdukTf(id, nama) {
-    document.getElementById('tf-produk').value = id;
-    let label = document.getElementById('tf-prd-label');
-    label.innerText = nama;
-    label.classList.replace('text-slate-500', 'text-slate-800');
-    toggleTfDropdown();
+function pilihProdukTf(idProduk) {
+    if (!state.keranjangTransfer) state.keranjangTransfer = [];
+    let prd = state.data.produk.find(p => String(p.ID_Produk) === String(idProduk));
+    if (!prd) return showInlineNotif('error', 'Produk tidak ditemukan!');
+
+    let stokTersedia = parseFloat(prd.Stok_Saat_Ini) || 0;
+    if (stokTersedia <= 0) return showInlineNotif('error', 'Stok produk ini kosong!');
+
+    let hasImei = prd.Barcode && String(prd.Barcode).trim() !== '' && String(prd.Barcode).trim() !== '-';
+    let isSingleImeiUnit = hasImei && stokTersedia === 1;
+
+    let idx = state.keranjangTransfer.findIndex(k => String(k.id_produk) === String(prd.ID_Produk));
+    if (idx > -1) {
+        if (isSingleImeiUnit || state.keranjangTransfer[idx].qty >= stokTersedia) {
+            // Toggle batal pilih jika sudah maksimal / unit IMEI tunggal
+            let removed = state.keranjangTransfer.splice(idx, 1)[0];
+            showInlineNotif('info', `${removed.nama} (${removed.barcode !== '-' ? removed.barcode : removed.id_produk}) dihapus dari daftar transfer.`);
+        } else {
+            state.keranjangTransfer[idx].qty += 1;
+            showInlineNotif('success', `Qty ${prd.Nama_Produk} ditambah menjadi ${state.keranjangTransfer[idx].qty}.`);
+        }
+    } else {
+        state.keranjangTransfer.push({
+            id_produk: prd.ID_Produk,
+            nama: prd.Nama_Produk,
+            kategori: prd.Kategori || 'Umum',
+            barcode: hasImei ? String(prd.Barcode).trim() : '-',
+            warna: (prd.Warna && prd.Warna !== '-') ? prd.Warna : '-',
+            satuan: prd.Satuan || 'Unit',
+            cabang_asal: prd.Cabang || state.cabang || 'Pusat',
+            stok_tersedia: stokTersedia,
+            qty: 1
+        });
+    }
+
+    filterListTf();
+    renderKeranjangTransfer();
+}
+
+function pilihSemuaHasilFilterTf() {
+    if (!state.keranjangTransfer) state.keranjangTransfer = [];
+    let search = document.getElementById('tf-prd-search');
+    let val = search ? search.value : "";
+    let filtered = getFilteredProdukForTf(val);
+    if (filtered.length === 0) return showInlineNotif('error', 'Tidak ada produk pada hasil pencarian untuk dipilih!');
+
+    let addedCount = 0;
+    filtered.forEach(prd => {
+        let stokTersedia = parseFloat(prd.Stok_Saat_Ini) || 0;
+        if (stokTersedia <= 0) return;
+        let hasImei = prd.Barcode && String(prd.Barcode).trim() !== '' && String(prd.Barcode).trim() !== '-';
+        let exists = state.keranjangTransfer.some(k => String(k.id_produk) === String(prd.ID_Produk));
+        if (!exists) {
+            state.keranjangTransfer.push({
+                id_produk: prd.ID_Produk,
+                nama: prd.Nama_Produk,
+                kategori: prd.Kategori || 'Umum',
+                barcode: hasImei ? String(prd.Barcode).trim() : '-',
+                warna: (prd.Warna && prd.Warna !== '-') ? prd.Warna : '-',
+                satuan: prd.Satuan || 'Unit',
+                cabang_asal: prd.Cabang || state.cabang || 'Pusat',
+                stok_tersedia: stokTersedia,
+                qty: 1
+            });
+            addedCount++;
+        }
+    });
+
+    filterListTf();
+    renderKeranjangTransfer();
+    if (addedCount > 0) {
+        showInlineNotif('success', `${addedCount} barang/IMEI berhasil ditambahkan ke daftar transfer!`);
+    } else {
+        showInlineNotif('info', 'Semua barang pada hasil filter sudah ada di daftar transfer.');
+    }
+}
+
+function tambahProdukTransferByKode(rawCode, fromCamera = false) {
+    let code = String(rawCode || '').trim();
+    if (!code) return false;
+    if (!state.keranjangTransfer) state.keranjangTransfer = [];
+
+    let roleNorm = String(state.role).toUpperCase().replace(/\s+/g, '');
+    let myCab = String(state.cabang || 'Pusat').toUpperCase().trim();
+    let filterAsal = getSelectedCabangAsalTf().toUpperCase().trim();
+
+    let matches = (state.data.produk || []).filter(p =>
+        String(p.Barcode || '').trim().toLowerCase() === code.toLowerCase() ||
+        String(p.ID_Produk || '').trim().toLowerCase() === code.toLowerCase()
+    );
+
+    if (matches.length === 0) {
+        showInlineNotif('error', `Kode / IMEI '${code}' tidak ditemukan di sistem!`);
+        return false;
+    }
+
+    // Prioritaskan produk di gudang asal yang masih punya stok > 0
+    let allowedMatches = matches.filter(p => {
+        let pCab = String(p.Cabang || 'Pusat').toUpperCase().trim();
+        if (roleNorm !== 'SUPERADMIN') return pCab === myCab;
+        if (filterAsal !== 'SEMUA') return pCab === filterAsal;
+        return true;
+    });
+
+    if (allowedMatches.length === 0) {
+        let otherCab = matches[0].Cabang || 'Pusat';
+        showInlineNotif('error', `IMEI/Produk '${code}' berada di cabang lain (${otherCab})!`);
+        return false;
+    }
+
+    let prd = allowedMatches.find(p => parseFloat(p.Stok_Saat_Ini) > 0) || allowedMatches[0];
+    let stokTersedia = parseFloat(prd.Stok_Saat_Ini) || 0;
+    if (stokTersedia <= 0) {
+        showInlineNotif('error', `Stok '${prd.Nama_Produk}' (${code}) sudah kosong / habis!`);
+        return false;
+    }
+
+    let hasImei = prd.Barcode && String(prd.Barcode).trim() !== '' && String(prd.Barcode).trim() !== '-';
+    let idx = state.keranjangTransfer.findIndex(k => String(k.id_produk) === String(prd.ID_Produk));
+    if (idx > -1) {
+        if (state.keranjangTransfer[idx].qty >= stokTersedia) {
+            showInlineNotif('error', `IMEI/Produk '${prd.Nama_Produk}' (${code}) sudah ada di daftar transfer (maksimal stok: ${stokTersedia})!`);
+            return false;
+        }
+        state.keranjangTransfer[idx].qty += 1;
+    } else {
+        state.keranjangTransfer.push({
+            id_produk: prd.ID_Produk,
+            nama: prd.Nama_Produk,
+            kategori: prd.Kategori || 'Umum',
+            barcode: hasImei ? String(prd.Barcode).trim() : '-',
+            warna: (prd.Warna && prd.Warna !== '-') ? prd.Warna : '-',
+            satuan: prd.Satuan || 'Unit',
+            cabang_asal: prd.Cabang || state.cabang || 'Pusat',
+            stok_tersedia: stokTersedia,
+            qty: 1
+        });
+    }
+
+    renderKeranjangTransfer();
+    filterListTf();
+    if (fromCamera) {
+        showInlineNotif('success', `Berhasil menambahkan ${prd.Nama_Produk} (${hasImei ? prd.Barcode : prd.ID_Produk}) ke daftar transfer!`);
+    }
+    return true;
+}
+
+function prosesInputScanTf() {
+    let inp = document.getElementById('tf-scan-input');
+    if (!inp) return;
+    let raw = inp.value.trim();
+    if (!raw) return showInlineNotif('error', 'Scan atau ketik Barcode / IMEI terlebih dahulu!');
+
+    // Bisa input multi-IMEI sekaligus dipisahkan spasi, koma, titik koma, atau baris baru
+    let codes = raw.split(/[\n,;\s]+/).map(c => c.trim()).filter(c => c);
+    let okCount = 0;
+    codes.forEach(c => {
+        if (tambahProdukTransferByKode(c, false)) okCount++;
+    });
+
+    if (okCount > 0) {
+        inp.value = "";
+        if (codes.length > 1) {
+            showInlineNotif('success', `Berhasil menambahkan ${okCount} dari ${codes.length} IMEI/Barang ke daftar transfer!`);
+        } else {
+            showInlineNotif('success', `Barang/IMEI berhasil ditambahkan ke daftar transfer!`);
+        }
+    }
+    inp.focus();
+}
+
+function ubahQtyTf(idx, delta) {
+    if (!state.keranjangTransfer || !state.keranjangTransfer[idx]) return;
+    let item = state.keranjangTransfer[idx];
+    let nextQty = item.qty + delta;
+    if (nextQty <= 0) {
+        state.keranjangTransfer.splice(idx, 1);
+    } else if (nextQty > item.stok_tersedia) {
+        showInlineNotif('error', `Maksimal stok tersedia untuk ${item.nama} adalah ${item.stok_tersedia}!`);
+        item.qty = item.stok_tersedia;
+    } else {
+        item.qty = nextQty;
+    }
+    renderKeranjangTransfer();
+    filterListTf();
+}
+
+function ubahQtyTfDirect(idx, val) {
+    if (!state.keranjangTransfer || !state.keranjangTransfer[idx]) return;
+    let item = state.keranjangTransfer[idx];
+    let num = parseFloat(val);
+    if (isNaN(num) || num <= 0) {
+        item.qty = 1;
+    } else if (num > item.stok_tersedia) {
+        showInlineNotif('error', `Stok gudang hanya tersedia ${item.stok_tersedia} ${item.satuan}!`);
+        item.qty = item.stok_tersedia;
+    } else {
+        item.qty = num;
+    }
+    renderKeranjangTransfer();
+    filterListTf();
+}
+
+function hapusItemTf(idx) {
+    if (!state.keranjangTransfer) return;
+    state.keranjangTransfer.splice(idx, 1);
+    renderKeranjangTransfer();
+    filterListTf();
+}
+
+function kosongkanKeranjangTf() {
+    state.keranjangTransfer = [];
+    renderKeranjangTransfer();
+    filterListTf();
+}
+
+function renderKeranjangTransfer() {
+    if (!state.keranjangTransfer) state.keranjangTransfer = [];
+    let tbody = document.getElementById('tf-cart-body');
+    if (!tbody) return;
+
+    let countBaris = state.keranjangTransfer.length;
+    let totalUnit = 0;
+    let tipeMap = {};
+
+    state.keranjangTransfer.forEach(item => {
+        totalUnit += parseFloat(item.qty) || 0;
+        let tKey = String(item.nama || 'Tanpa Nama').trim();
+        if (!tipeMap[tKey]) tipeMap[tKey] = { qty: 0, imeiCount: 0, satuan: item.satuan || 'Unit' };
+        tipeMap[tKey].qty += parseFloat(item.qty) || 0;
+        if (item.barcode && item.barcode !== '-') tipeMap[tKey].imeiCount += 1;
+    });
+
+    let totalTipe = Object.keys(tipeMap).length;
+
+    let elBaris = document.getElementById('tf-count-baris');
+    let elUnit = document.getElementById('tf-count-unit');
+    let elSummary = document.getElementById('tf-footer-summary');
+    let btnClear = document.getElementById('btn-clear-tf');
+    let rekapWrap = document.getElementById('tf-rekap-wrap');
+    let rekapTipeEl = document.getElementById('tf-rekap-tipe');
+    let prdLabel = document.getElementById('tf-prd-label');
+
+    if (elBaris) elBaris.innerText = countBaris;
+    if (elUnit) elUnit.innerText = totalUnit;
+    if (elSummary) elSummary.innerText = `${totalTipe} Tipe Produk | ${countBaris} Baris/IMEI | ${totalUnit} Unit`;
+    if (btnClear) {
+        if (countBaris > 0) btnClear.classList.remove('hidden');
+        else btnClear.classList.add('hidden');
+    }
+    if (prdLabel) {
+        if (countBaris > 0) {
+            prdLabel.innerText = `${countBaris} Barang/IMEI Dipilih (${totalTipe} Tipe, Total ${totalUnit} Unit) - Klik untuk Tambah Lagi`;
+            prdLabel.classList.replace('text-slate-700', 'text-indigo-700');
+        } else {
+            prdLabel.innerText = "-- Cari & Pilih Barang / Multi-IMEI (Klik untuk Buka Daftar) --";
+            prdLabel.classList.replace('text-indigo-700', 'text-slate-700');
+        }
+    }
+
+    if (countBaris === 0) {
+        if (rekapWrap) rekapWrap.classList.add('hidden');
+        tbody.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-slate-400 font-bold"><i class="fa-solid fa-boxes-packing text-3xl mb-2 block text-slate-300"></i>Daftar transfer masih kosong.<br><span class="text-[11px] font-normal">Pilih beberapa IMEI / barang dari daftar pencarian atau scan barcode di atas.</span></td></tr>`;
+        return;
+    }
+
+    if (rekapWrap && rekapTipeEl) {
+        rekapWrap.classList.remove('hidden');
+        let chipsHtml = "";
+        Object.keys(tipeMap).forEach(tName => {
+            let d = tipeMap[tName];
+            let imeiInfo = d.imeiCount > 0 ? ` (${d.imeiCount} IMEI)` : '';
+            chipsHtml += `<span class="bg-white border border-indigo-200 text-indigo-800 text-[11px] font-black px-2.5 py-1 rounded-lg shadow-sm inline-flex items-center gap-1.5"><i class="fa-solid fa-box text-indigo-500"></i>${tName}: <b class="text-emerald-600">${d.qty} ${d.satuan}${imeiInfo}</b></span>`;
+        });
+        rekapTipeEl.innerHTML = chipsHtml;
+    }
+
+    let html = "";
+    state.keranjangTransfer.forEach((item, idx) => {
+        let hasImei = item.barcode && item.barcode !== '-';
+        let badgeImei = hasImei
+            ? `<span class="text-[11px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded font-mono font-black border border-indigo-200 inline-block"><i class="fa-solid fa-barcode mr-1"></i>${item.barcode}</span>`
+            : `<span class="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-mono border border-slate-200 inline-block">Non-IMEI (${item.id_produk})</span>`;
+        let badgeWarna = (item.warna && item.warna !== '-')
+            ? `<span class="text-[10px] bg-amber-50 text-amber-700 px-2 py-0.5 rounded font-bold border border-amber-200 inline-block ml-1"><i class="fa-solid fa-palette mr-1"></i>${item.warna}</span>`
+            : '';
+
+        let sameNameCount = tipeMap[String(item.nama || 'Tanpa Nama').trim()] ? tipeMap[String(item.nama || 'Tanpa Nama').trim()].imeiCount : 0;
+        let multiImeiBadge = (hasImei && sameNameCount > 1)
+            ? `<span class="text-[9px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-black border border-purple-200 ml-1">Multi-IMEI</span>`
+            : '';
+
+        html += `<tr class="hover:bg-slate-50 transition">
+            <td class="p-3 pl-4 text-center text-slate-400 font-black">${idx + 1}</td>
+            <td class="p-3">
+                <p class="font-black text-slate-800 text-xs">${item.nama} ${multiImeiBadge}</p>
+                <span class="text-[9px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded border border-slate-200 mt-0.5 inline-block"><i class="fa-solid fa-tag mr-1"></i>${item.kategori}</span>
+            </td>
+            <td class="p-3">${badgeImei}${badgeWarna}</td>
+            <td class="p-3 text-center"><span class="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded border border-blue-100 font-black uppercase"><i class="fa-solid fa-store mr-1"></i>${item.cabang_asal}</span></td>
+            <td class="p-3 text-center text-slate-500 font-black">${item.stok_tersedia} <span class="text-[9px] uppercase">${item.satuan}</span></td>
+            <td class="p-3 text-center">
+                <div class="inline-flex items-center bg-slate-100 rounded-lg border border-slate-300 overflow-hidden">
+                    <button type="button" onclick="ubahQtyTf(${idx}, -1)" class="px-2.5 py-1 text-slate-600 hover:bg-slate-200 transition"><i class="fa-solid fa-minus text-[10px]"></i></button>
+                    <input type="number" min="1" max="${item.stok_tersedia}" value="${item.qty}" onchange="ubahQtyTfDirect(${idx}, this.value)" class="w-12 text-center bg-white font-black text-xs text-indigo-700 py-1 outline-none border-x border-slate-200">
+                    <button type="button" onclick="ubahQtyTf(${idx}, 1)" class="px-2.5 py-1 text-slate-600 hover:bg-slate-200 transition"><i class="fa-solid fa-plus text-[10px]"></i></button>
+                </div>
+            </td>
+            <td class="p-3 pr-4 text-center">
+                <button type="button" onclick="hapusItemTf(${idx})" class="w-7 h-7 rounded-lg bg-red-50 text-red-500 hover:bg-red-500 hover:text-white border border-red-100 transition inline-flex items-center justify-center"><i class="fa-solid fa-xmark"></i></button>
+            </td>
+        </tr>`;
+    });
+
+    tbody.innerHTML = html;
 }
 
 function filterStokUI() { 
@@ -2508,7 +3150,13 @@ function hitungTotalOpname() {
     }
 }
 
-function switchStokTab(tab, el) { ['pantau','mutasi','lacak','opname', 'transfer'].forEach(t => document.getElementById('stok-'+t).classList.add('hidden')); el.parentElement.querySelectorAll('.tab-custom').forEach(e => e.classList.remove('active')); document.getElementById('stok-'+tab).classList.remove('hidden'); el.classList.add('active'); }
+function switchStokTab(tab, el) { 
+    ['pantau','mutasi','lacak','opname', 'transfer'].forEach(t => document.getElementById('stok-'+t).classList.add('hidden')); 
+    el.parentElement.querySelectorAll('.tab-custom').forEach(e => e.classList.remove('active')); 
+    document.getElementById('stok-'+tab).classList.remove('hidden'); 
+    el.classList.add('active'); 
+    if (tab === 'transfer') renderKeranjangTransfer();
+}
 
 async function simpanOpnameMassal() { 
     let payloadItems = []; 
@@ -2666,35 +3314,210 @@ function cetakFormOpname() {
     setTimeout(() => { iframe.contentWindow.focus(); iframe.contentWindow.print(); }, 800);
 }
 
+function konfirmasiProsesTransferGudang() {
+    let cbgTujuanEl = document.getElementById('tf-tujuan');
+    let cbgTujuan = cbgTujuanEl ? cbgTujuanEl.value.trim() : "";
+    if (!cbgTujuan) return showInlineNotif('error', 'Pilih Cabang Tujuan penerima terlebih dahulu!');
+    if (!state.keranjangTransfer || state.keranjangTransfer.length === 0) {
+        return showInlineNotif('error', 'Daftar barang transfer masih kosong! Pilih barang atau scan IMEI terlebih dahulu.');
+    }
+
+    // Validasi tidak ada barang yang dikirim ke cabang yang sama dengan cabang asalnya
+    let sameBranchItem = state.keranjangTransfer.find(item => String(item.cabang_asal || state.cabang).toUpperCase().trim() === cbgTujuan.toUpperCase().trim());
+    if (sameBranchItem) {
+        return showInlineNotif('error', `Gagal! Barang '${sameBranchItem.nama}' sudah berada di cabang ${cbgTujuan}.`);
+    }
+
+    let totalBaris = state.keranjangTransfer.length;
+    let totalUnit = state.keranjangTransfer.reduce((sum, item) => sum + (parseFloat(item.qty) || 0), 0);
+    bukaModalConfirm(
+        "Konfirmasi Transfer Cabang",
+        `Yakin memindahkan ${totalBaris} baris barang/IMEI (Total ${totalUnit} Unit) ke cabang ${cbgTujuan}?`,
+        "po",
+        prosesTransferGudang
+    );
+}
+
 async function prosesTransferGudang() {
-  let cbgTujuan = document.getElementById('tf-tujuan').value.trim(); let prdVal = document.getElementById('tf-produk').value.trim(); let qty = parseFloat(document.getElementById('tf-qty').value);
-  if(!cbgTujuan || !prdVal || !qty || qty <= 0) return showInlineNotif('error', 'Cabang, Produk, dan Qty wajib diisi dengan benar!');
-  if(cbgTujuan === state.cabang) return showInlineNotif('error', 'Tidak bisa transfer ke cabang yang sama!');
-  let prd = state.data.produk.find(p => String(p.ID_Produk) === prdVal || String(p.Barcode) === prdVal);
-  if(!prd) return showInlineNotif('error', 'Produk tidak ditemukan di Gudang Anda!');
-  if(qty > parseFloat(prd.Stok_Saat_Ini)) return showInlineNotif('error', `Gagal! Stok gudang Anda tidak cukup. Sisa: ${prd.Stok_Saat_Ini}`);
-  let payload = { id_produk: prd.ID_Produk, qty: qty, cabang_asal: state.cabang, cabang_tujuan: cbgTujuan };
-  let btn = document.getElementById('btn-tf'); btn.innerHTML = "Memproses Transfer..."; btn.disabled = true;
-  let res = await requestAPIWithAuth('prosesTransferCabang', payload);
-  if(res.status) { 
-      showInlineNotif('success', `Berhasil! ${qty} unit dipindah ke ${cbgTujuan}`); 
-      document.getElementById('tf-produk').value = ""; 
-      let label = document.getElementById('tf-prd-label');
-      if(label) {
-          label.innerText = "-- Pilih / Cari Produk yg Dipindah --";
-          label.classList.replace('text-slate-800', 'text-slate-500');
-      }
-      document.getElementById('tf-qty').value = ""; 
-      syncDataLiveBackground(); 
-  } 
-  else { showInlineNotif('error', res.msg); }
-  btn.innerHTML = "Proses Pindah Gudang"; btn.disabled = false;
+    let cbgTujuanEl = document.getElementById('tf-tujuan');
+    let cbgTujuan = cbgTujuanEl ? cbgTujuanEl.value.trim() : "";
+    if (!cbgTujuan) return showInlineNotif('error', 'Pilih Cabang Tujuan terlebih dahulu!');
+    if (!state.keranjangTransfer || state.keranjangTransfer.length === 0) {
+        return showInlineNotif('error', 'Daftar barang transfer masih kosong!');
+    }
+
+    // Validasi stok terbaru sebelum eksekusi
+    for (let item of state.keranjangTransfer) {
+        let prd = state.data.produk.find(p => String(p.ID_Produk) === String(item.id_produk));
+        if (!prd) return showInlineNotif('error', `Produk ${item.nama} tidak ditemukan di sistem!`);
+        if (item.qty <= 0 || item.qty > parseFloat(prd.Stok_Saat_Ini)) {
+            return showInlineNotif('error', `Stok ${item.nama} (${item.barcode !== '-' ? item.barcode : item.id_produk}) tidak mencukupi! Sisa: ${prd.Stok_Saat_Ini}`);
+        }
+        if (String(item.cabang_asal || prd.Cabang || state.cabang).toUpperCase().trim() === cbgTujuan.toUpperCase().trim()) {
+            return showInlineNotif('error', `Barang ${item.nama} sudah berada di cabang ${cbgTujuan}!`);
+        }
+    }
+
+    let btn = document.getElementById('btn-tf');
+    let oriBtnHtml = btn ? btn.innerHTML : '';
+    if (btn) {
+        btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-2"></i> Memproses Transfer...`;
+        btn.disabled = true;
+    }
+
+    let loader = document.getElementById('global-loader');
+    let itemsToProcess = [...state.keranjangTransfer];
+    if (loader) {
+        let pList = loader.querySelectorAll('p');
+        if (pList[0]) pList[0].innerText = "MEMPROSES TRANSFER CABANG...";
+        if (pList[1]) pList[1].innerText = `Memindahkan 0 dari ${itemsToProcess.length} barang ke ${cbgTujuan}...`;
+        loader.classList.replace('hidden', 'flex');
+    }
+
+    let berhasilItems = [];
+    let gagalItems = [];
+    let lastErrorMsg = "";
+
+    for (let i = 0; i < itemsToProcess.length; i++) {
+        let item = itemsToProcess[i];
+        if (loader) {
+            let pList = loader.querySelectorAll('p');
+            if (pList[1]) pList[1].innerText = `Memindahkan (${i + 1}/${itemsToProcess.length}): ${item.nama} ${item.barcode !== '-' ? '[' + item.barcode + ']' : ''}...`;
+        }
+
+        let payload = {
+            id_produk: item.id_produk,
+            qty: item.qty,
+            cabang_asal: item.cabang_asal || state.cabang,
+            cabang_tujuan: cbgTujuan
+        };
+
+        let res = await requestAPIWithAuth('prosesTransferCabang', payload);
+        if (res && res.status) {
+            berhasilItems.push({ ...item });
+            // Update stok lokal secara instan agar sinkron sebelum penarikan background selesai
+            let prdIdx = state.data.produk.findIndex(p => String(p.ID_Produk) === String(item.id_produk));
+            if (prdIdx > -1) {
+                state.data.produk[prdIdx].Stok_Saat_Ini = Math.max(0, (parseFloat(state.data.produk[prdIdx].Stok_Saat_Ini) || 0) - item.qty);
+            }
+        } else {
+            gagalItems.push(item);
+            lastErrorMsg = (res && res.msg) ? res.msg : "Gagal transfer item";
+        }
+    }
+
+    if (loader) loader.classList.replace('flex', 'hidden');
+    if (btn) {
+        btn.innerHTML = oriBtnHtml || `<i class="fa-solid fa-paper-plane"></i> Proses Pindah Gudang Sekarang`;
+        btn.disabled = false;
+    }
+
+    // Sisakan hanya item yang gagal (jika ada) di keranjang
+    state.keranjangTransfer = gagalItems;
+    renderKeranjangTransfer();
+    filterListTf();
+
+    if (berhasilItems.length > 0) {
+        let totalUnitBerhasil = berhasilItems.reduce((sum, x) => sum + (parseFloat(x.qty) || 0), 0);
+        window.lastTransferReceipt = {
+            id_sj: "SJ-" + new Date().getTime().toString().slice(-6),
+            waktu: new Date().toLocaleString('id-ID'),
+            oleh: state.user,
+            cabang_asal: [...new Set(berhasilItems.map(x => x.cabang_asal))].join(', '),
+            cabang_tujuan: cbgTujuan,
+            items: berhasilItems,
+            total_unit: totalUnitBerhasil
+        };
+        let btnSj = document.getElementById('btn-cetak-sj-tf');
+        if (btnSj) btnSj.classList.replace('hidden', 'flex');
+
+        if (gagalItems.length === 0) {
+            showInlineNotif('success', `Berhasil memindahkan ${berhasilItems.length} baris barang (${totalUnitBerhasil} unit) ke ${cbgTujuan}!`);
+        } else {
+            showInlineNotif('info', `Selesai sebagian: ${berhasilItems.length} berhasil, ${gagalItems.length} gagal (${lastErrorMsg}).`);
+        }
+        syncDataLiveBackground(true);
+    } else {
+        showInlineNotif('error', `Gagal memproses transfer: ${lastErrorMsg}`);
+    }
+}
+
+function cetakSuratJalanTransfer() {
+    let sj = window.lastTransferReceipt;
+    if (!sj || !sj.items || sj.items.length === 0) {
+        return showInlineNotif('error', 'Belum ada riwayat transfer cabang pada sesi ini untuk dicetak!');
+    }
+
+    let namaToko = localStorage.getItem('sanstech_nama_toko') || "BLANGKON ERP";
+    let iframe = document.getElementById('print-iframe');
+    let doc = iframe.contentWindow.document;
+
+    let rowsHtml = "";
+    sj.items.forEach((item, i) => {
+        let imeiText = (item.barcode && item.barcode !== '-') ? item.barcode : item.id_produk;
+        let warnaText = (item.warna && item.warna !== '-') ? ` (${item.warna})` : '';
+        rowsHtml += `<tr>
+            <td style="text-align:center;">${i + 1}</td>
+            <td><b>${item.nama}</b><br><span style="font-size:10px;color:#555;">Kategori: ${item.kategori}</span></td>
+            <td style="font-family:monospace;">${imeiText}${warnaText}</td>
+            <td style="text-align:center;">${item.cabang_asal}</td>
+            <td style="text-align:center;font-weight:bold;">${item.qty} ${item.satuan}</td>
+        </tr>`;
+    });
+
+    let html = `<html><head><title>Surat Jalan Transfer Cabang</title><style>
+        @page { size: A4; margin: 15mm; }
+        body { font-family: Arial, sans-serif; color: #111; font-size: 12px; }
+        h2 { text-align: center; margin: 0 0 4px 0; text-transform: uppercase; }
+        .sub { text-align: center; font-size: 11px; color: #555; margin-bottom: 15px; }
+        .meta { display: flex; justify-content: space-between; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 15px; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+        th, td { border: 1px solid #000; padding: 7px; text-align: left; }
+        th { background: #f1f5f9; text-align: center; font-weight: bold; }
+        .ttd { display: table; width: 100%; margin-top: 35px; }
+        .ttd-col { display: table-cell; width: 33%; text-align: center; }
+        .line { display: inline-block; width: 150px; border-bottom: 1px solid #000; margin-top: 55px; }
+    </style></head><body>
+        <h2>SURAT JALAN TRANSFER STOK CABANG</h2>
+        <div class="sub">${namaToko} | No: ${sj.id_sj}</div>
+        <div class="meta">
+            <div><b>Dari Gudang:</b> ${sj.cabang_asal}<br><b>Tujuan Cabang:</b> ${sj.cabang_tujuan}</div>
+            <div style="text-align:right;"><b>Waktu Transfer:</b> ${sj.waktu}<br><b>Diproses Oleh:</b> ${sj.oleh}</div>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th width="6%">No</th>
+                    <th width="36%">Nama Produk / Tipe</th>
+                    <th width="28%">IMEI / Barcode & Warna</th>
+                    <th width="15%">Asal</th>
+                    <th width="15%">Qty Kirim</th>
+                </tr>
+            </thead>
+            <tbody>${rowsHtml}</tbody>
+            <tfoot>
+                <tr>
+                    <td colspan="4" style="text-align:right;font-weight:bold;">TOTAL UNIT DIKIRIM:</td>
+                    <td style="text-align:center;font-weight:bold;font-size:14px;">${sj.total_unit} Unit</td>
+                </tr>
+            </tfoot>
+        </table>
+        <div class="ttd">
+            <div class="ttd-col">Diserahkan Oleh (Gudang Asal),<br><span class="line"></span><br>${sj.oleh}</div>
+            <div class="ttd-col">Kurir / Pengirim,<br><span class="line"></span><br>( ........................ )</div>
+            <div class="ttd-col">Diterima Oleh (${sj.cabang_tujuan}),<br><span class="line"></span><br>( ........................ )</div>
+        </div>
+    </body></html>`;
+
+    doc.open(); doc.write(html); doc.close();
+    setTimeout(() => { iframe.contentWindow.focus(); iframe.contentWindow.print(); }, 500);
 }
 
 function lacakImeiBarang() { 
   let val = document.getElementById('input-lacak-imei').value.trim(); 
   if(!val) return showInlineNotif('error', "Masukkan Barcode / IMEI!"); 
-  let prd = state.data.produk.find(x => String(x.Barcode) === val || String(x.ID_Produk) === val); 
+  let prdList = state.data.produk.filter(x => String(x.Barcode) === val || String(x.ID_Produk) === val); 
+  let prd = prdList.find(x => parseFloat(x.Stok_Saat_Ini) > 0) || prdList[0];
   if(!prd) { document.getElementById('hasil-lacak-imei').innerHTML = `<p class="text-center text-red-500 font-bold p-4 bg-red-50 rounded-xl border border-red-200">Data IMEI tidak ditemukan di sistem!</p>`; document.getElementById('hasil-lacak-imei').classList.remove('hidden'); return; } 
   let history = state.data.stok ? state.data.stok.filter(x => String(x.ID_Produk) === String(prd.ID_Produk)) : []; 
   let html = ` <div class="text-center mb-4 border-b pb-4"> <h4 class="font-black text-slate-800 text-lg mb-2">Hasil Lacak:<br><span class="text-blue-600">${prd.Nama_Produk}</span></h4> <div class="inline-block bg-blue-50 border border-blue-200 px-4 py-2 rounded-xl mt-1 shadow-sm text-left"> <p class="text-xs font-bold text-blue-700 mb-1"><i class="fa-solid fa-location-dot mr-2"></i>Posisi Saat Ini: <span class="font-black uppercase">${prd.Cabang || 'Pusat'}</span></p> <p class="text-xs font-bold text-blue-700"><i class="fa-solid fa-box mr-2"></i>Sisa Stok Aktual: <span class="font-black">${prd.Stok_Saat_Ini} ${prd.Satuan || ''}</span></p> </div> </div>`; 
@@ -3840,20 +4663,21 @@ function muatPengaturanLokal() {
     let pjk = localStorage.getItem('sanstech_pajak'); if(pjk && document.getElementById('set-pajak')) document.getElementById('set-pajak').value = pjk; 
     let apik = localStorage.getItem('sanstech_api_key'); if(apik && document.getElementById('set-api-key')) document.getElementById('set-api-key').value = apik; 
     let webh = localStorage.getItem('sanstech_webhook'); if(webh && document.getElementById('set-webhook')) document.getElementById('set-webhook').value = webh; 
-    if(state.role !== 'KASIR') {
+    let roleNorm = String(state.role).toUpperCase().replace(/\s+/g, '');
+    if(roleNorm === 'SUPERADMIN') {
         let savedCabang = JSON.parse(localStorage.getItem('sanstech_list-gudang') || '["Pusat"]'); 
         if(!savedCabang.includes("Pusat")) savedCabang.unshift("Pusat");
         let opsiCabangHtml = `<option value="SEMUA">Semua Cabang</option>`; 
         savedCabang.forEach(c => { opsiCabangHtml += `<option value="${c}">${c}</option>`; });
         let filterStok = document.getElementById('stok-filter-cabang');
-        if(filterStok) {
-            let currentVal = filterStok.value;
+        if(filterStok && filterStok.tagName === 'SELECT') {
+            let currentVal = filterStok.value || 'SEMUA';
             filterStok.innerHTML = opsiCabangHtml;
             filterStok.value = currentVal;
         }
         let filterProd = document.getElementById('filter-cabang-produk');
-        if(filterProd) {
-            let currentVal = filterProd.value;
+        if(filterProd && filterProd.tagName === 'SELECT') {
+            let currentVal = filterProd.value || 'SEMUA';
             filterProd.innerHTML = opsiCabangHtml;
             filterProd.value = currentVal;
         }
@@ -3919,7 +4743,9 @@ function backupDataJSON() {
             let url = URL.createObjectURL(blob);
             let a = document.createElement('a');
             a.href = url;
-            a.download = `Backup_sanstech_${new Date().toISOString().split('T')[0]}.json`;
+            let dNow = new Date();
+            let localDate = new Date(dNow.getTime() - (dNow.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
+            a.download = `Backup_sanstech_${localDate}.json`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
@@ -3949,7 +4775,8 @@ function viewDataMaster() {
       let liHtml = ''; 
       arr.forEach((item) => { 
           let isDefault = (item === defaultVal);
-          let btnHapus = isDefault ? `<span class="text-[9px] bg-slate-100 text-slate-400 px-2 py-0.5 rounded font-black border border-slate-200 uppercase">Sistem</span>` : `<button onclick="hapusMasterLokal('${idKey}', '${item}', '${title}')" class="text-red-400 hover:text-red-600 transition bg-red-50 w-6 h-6 rounded flex items-center justify-center border border-red-100" title="Hapus"><i class="fa-solid fa-trash text-[10px]"></i></button>`;
+          let safeItem = String(item).replace(/'/g, "\\'");
+          let btnHapus = isDefault ? `<span class="text-[9px] bg-slate-100 text-slate-400 px-2 py-0.5 rounded font-black border border-slate-200 uppercase">Sistem</span>` : `<button onclick="hapusMasterLokal('${idKey}', '${safeItem}', '${title}')" class="text-red-400 hover:text-red-600 transition bg-red-50 w-6 h-6 rounded flex items-center justify-center border border-red-100" title="Hapus"><i class="fa-solid fa-trash text-[10px]"></i></button>`;
           liHtml += `<li class="flex justify-between items-center bg-white border border-slate-100 p-2.5 rounded-lg shadow-sm mb-1.5 hover:border-blue-200 transition"><span class="font-bold text-slate-700 text-xs">${item}</span>${btnHapus}</li>`; 
       }); 
       return liHtml; 
@@ -4147,18 +4974,4 @@ async function simpanKaryawanBaru() {
     } 
     btn.innerHTML = '<i class="fa-solid fa-user-plus mr-2"></i> Tambah Akun'; 
     btn.disabled = false;
-}
-
-const originalRender = renderModulAktif; 
-renderModulAktif = function() { 
-    originalRender(); 
-    if(state.activeMenu === 'produk') filterProdukUI(); 
-    if(state.activeMenu === 'penjualan') filterPenjualanUI(); 
-    if(state.activeMenu === 'stok') filterStokUI(); 
-    if(state.activeMenu === 'pelanggan') filterPelangganUI(); 
-    if(state.activeMenu === 'supplier') filterSupplierUI(); 
-    if(state.activeMenu === 'keuangan') filterKeuanganUI(); 
-    if(state.activeMenu === 'pembelian') renderKeranjangPO(); 
-    if(state.activeMenu === 'laporan') renderChartLaporan(); 
-    if(state.activeMenu === 'pengaturan') muatPengaturanLokal(); 
 }
